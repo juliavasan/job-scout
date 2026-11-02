@@ -1,0 +1,49 @@
+name: Daily job scout
+
+on:
+  schedule:
+    # GitHub cron is UTC and ignores daylight saving time.
+    # 14:00 UTC = 6:00 AM PST (Nov–Mar) = 7:00 AM PDT (Mar–Nov).
+    # For 6:00 AM during PDT instead, use "0 13 * * *" (= 5:00 AM PST in winter).
+    # GitHub may start scheduled runs 5–30+ minutes late at busy times.
+    - cron: "0 14 * * *"
+  workflow_dispatch:
+    inputs:
+      profile:
+        description: "Profile name, or 'all'"
+        default: "all"
+        required: true
+      dry_run:
+        description: "Dry run (write nothing)"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: jobscout
+  cancel-in-progress: false
+
+jobs:
+  scout:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - run: pip install .
+      - name: Run
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          SERPAPI_API_KEY: ${{ secrets.SERPAPI_API_KEY }}
+          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+          PROFILES_YAML: ${{ secrets.PROFILES_YAML }}
+          PROFILE: ${{ inputs.profile || 'all' }}
+          DRY_RUN: ${{ inputs.dry_run && '--dry-run' || '' }}
+        # Each profile runs isolated; one failing profile doesn't stop the others.
+        # Logs show counts only (this repo is public, so are its Actions logs).
+        run: python -m jobscout run --profile "$PROFILE" $DRY_RUN
