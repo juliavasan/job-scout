@@ -258,6 +258,8 @@ def cmd_backfill_links(args) -> int:
         header = ws.row_values(1)
         cells, summary = [], {"company": 0, "closed": 0, "linkedin": 0, "exact_date": 0}
         for i, r in enumerate(rows, start=2):
+            if "careers site" in r.get("Source", ""):
+                continue  # found directly on the company's site: its URL and date are already exact
             try:
                 posted = _date.fromisoformat(r.get("Posted date", ""))
             except ValueError:

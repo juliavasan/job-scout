@@ -242,7 +242,7 @@ def search_ats(ats: Ats, title: str) -> list[Posting] | None:
             return [Posting(j.get("title", ""), j.get("jobUrl", ""), parse_iso_date(j.get("publishedAt")), j.get("location", ""),
                             description=j.get("descriptionPlain") or "") for j in r.json().get("jobs", [])]
         if ats.kind == "smartrecruiters":
-            r = _get(f"https://api.smartrecruiters.com/v1/companies/{ats.a}/postings", params={"q": q, "limit": 50})
+            r = _get(f"https://api.smartrecruiters.com/v1/companies/{ats.a}/postings", params={"q": title or q, "limit": 50})
             if r is None or r.status_code != 200:
                 return None
             return [Posting(p.get("name", ""), f"https://jobs.smartrecruiters.com/{ats.a}/{p.get('id')}",
