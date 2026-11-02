@@ -8,6 +8,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 
+from . import linkedin
 from . import llm as L
 from .config import ConfigError, Profile
 from .dedup import canonical_url, company_title_key, job_key, normalize_company
@@ -214,8 +215,16 @@ def run_profile(
             if err:
                 rep.errors.append(f"company: {err}")
 
-    # 6) Build + append rows
-    for job, j in accepted:
+    # 6) LinkedIn URL per accepted job (existing link, else search, else LinkedIn search link)
+    def _li(item):
+        job, j = item
+        return linkedin.resolve(claude, j.job_title or job.title, job.company, job.location, job.all_urls())[0]
+
+    with ThreadPoolExecutor(WORKERS) as pool:
+        li_urls = list(pool.map(_li, accepted))
+
+    # 7) Build + append rows
+    for (job, j), li_url in zip(accepted, li_urls):
         f = known.get(normalize_company(job.company), UNKNOWN_FACTS)
         rep.rows.append([
             day, str(j.fit_score), j.job_title or job.title, job.company, j.why_it_fits, j.concerns,
@@ -224,6 +233,7 @@ def run_profile(
             f.company_type_industry, f.size_employees, f.funding_stage_or_public, f.hq, f.one_line_description,
             job.url, job.company_website or f.website, job.source, "New", "",
             j.best_resume if j.best_resume in resume_names else ("none" if not resumes else "unclear"),
+            li_url,
         ])
     rep.added = len(rep.rows)
 

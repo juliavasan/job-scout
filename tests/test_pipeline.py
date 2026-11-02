@@ -70,6 +70,7 @@ def fake_llm(monkeypatch):
         calls["learn"].append(feedback)
         return ["Exclude sales-heavy roles"] if any("sales" in f["feedback"] for f in feedback) else []
     monkeypatch.setattr(L, "learn_exclusions", learn)
+    monkeypatch.setattr(L, "find_linkedin_posting", lambda c, t, co, loc: "")
     return calls
 
 
@@ -188,3 +189,12 @@ def test_run_log_line():
                            usage={"calls": 22, "input_tokens": 47286, "output_tokens": 6987, "web_searches": 9, "cost_usd": 0.27}, seconds=81)
     assert line == ("2026-11-02 21:46 UTC | JV | run | found 16 | added 5 | dup 0 | excluded 11 | over cap 0 | learned 0 | errors 0"
                     " | serpapi 5 | claude 22 calls, 47.3k in / 7.0k out, 9 web searches, ~$0.27 | 81s")
+
+
+def test_linkedin_column_filled(fake_llm):
+    store = FakeStore()
+    pipeline.run_profile(P, store, DummyClaude(), [FakeSource([J("FDE", "Acme", url="https://www.linkedin.com/jobs/view/fde-at-acme-4012345678"),
+                                                               J("TPM", "Beta", url="https://beta.com/1")])])
+    li = {r[JOBS_COLUMNS.index("Company")]: r[JOBS_COLUMNS.index("LinkedIn URL")] for r in store.jobs[1:]}
+    assert li["Acme"] == "https://linkedin.com/jobs/view/4012345678"
+    assert li["Beta"].startswith("https://www.linkedin.com/jobs/search/?keywords=")

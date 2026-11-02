@@ -86,3 +86,26 @@ def test_bad_location_falls_back_and_bad_query_is_isolated():
     jobs = src.fetch(SearchPlan(queries=[SearchQuery("tpm", "Los Gatos, CA"), SearchQuery("boom"), SearchQuery("tpm remote")]), 7)
     assert len(jobs) == 2 and len(src.errors) == 1
     assert {"q": "tpm Los Gatos, CA"} in calls
+
+
+def test_linkedin_resolve_order():
+    from jobscout import linkedin
+    assert linkedin.resolve(None, "TPM", "Acme", "", ["https://www.linkedin.com/jobs/view/tpm-at-acme-4012345678?trk=x"]) == \
+        ("https://linkedin.com/jobs/view/4012345678", "posting")
+    url, kind = linkedin.resolve(None, "Senior TPM", "Acme Inc", "", ["https://acme.com/jobs/1"])
+    assert kind == "search" and url == "https://www.linkedin.com/jobs/search/?keywords=Senior+TPM+Acme&f_TPR=r2592000"
+    assert linkedin.search_url("Remote - Senior Technical Program Manager", "NVIDIA Corporation") == \
+        "https://www.linkedin.com/jobs/search/?keywords=Senior+Technical+Program+Manager+NVIDIA&f_TPR=r2592000"
+    assert "Remote" not in linkedin.search_url("Senior TPM, Services Operations - Remote", "SentinelOne")
+
+    class FakeClaude: pass
+    import jobscout.llm as L
+    orig, orig_flag = L.find_linkedin_posting, linkedin.SEARCH_ENABLED
+    linkedin.SEARCH_ENABLED = True
+    try:
+        L.find_linkedin_posting = lambda c, t, co, loc: "https://www.linkedin.com/jobs/view/senior-tpm-at-other-co-4000000001"
+        assert linkedin.resolve(FakeClaude(), "Senior TPM", "Acme", "", [])[1] == "search"  # wrong employer rejected
+        L.find_linkedin_posting = lambda c, t, co, loc: "https://www.linkedin.com/jobs/view/senior-tpm-at-acme-4000000002"
+        assert linkedin.resolve(FakeClaude(), "Senior TPM", "Acme", "", []) == ("https://linkedin.com/jobs/view/4000000002", "found")
+    finally:
+        L.find_linkedin_posting, linkedin.SEARCH_ENABLED = orig, orig_flag

@@ -12,7 +12,7 @@ from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 import httpx
 
-from ..dedup import normalize_company
+from ..linkedin import company_tokens, matches_company
 from ..models import RawJob
 from .base import SearchPlan, Source, is_recent, parse_relative_date
 
@@ -43,25 +43,12 @@ def clean_url(url: str) -> str:
     return urlunsplit((parts.scheme, parts.netloc, parts.path, urlencode(kept), ""))
 
 
-_GENERIC = {"the", "and", "group", "systems", "system", "technologies", "technology", "tech", "labs", "global",
-            "international", "holdings", "services", "solutions", "software", "health", "inc", "usa", "america"}
-
-
 def _company_tokens(company: str) -> list[str]:
-    return [t for t in normalize_company(company).split() if len(t) >= 3 and t not in _GENERIC]
+    return company_tokens(company)
 
 
 def linkedin_matches_company(url: str, company: str) -> bool:
-    """Google Jobs sometimes attaches another employer's LinkedIn link. LinkedIn slugs look like
-    /jobs/view/<title>-at-<company>-<id>; if there is a slug, it must mention the company."""
-    m = re.search(r"/jobs/view/([^/?#]+)", url)
-    if not m or re.fullmatch(r"\d+", m.group(1)):
-        return True  # bare ID: nothing to check against
-    slug = m.group(1).lower()
-    at = slug.rsplit("-at-", 1)
-    company_part = at[1] if len(at) == 2 else slug
-    toks = _company_tokens(company)
-    return not toks or any(t in company_part.replace("-", "") or t in company_part for t in toks)
+    return matches_company(url, company)
 
 
 def _is_company_site(url: str, company: str) -> bool:

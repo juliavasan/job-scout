@@ -37,7 +37,7 @@ Job Scout/                                             ┌───────�
 **Jobs tab columns:** Date added · Fit score (1–10) · Job title · Company · Why it fits · Concerns / red flags ·
 Location · Work mode · Employment type · Seniority · Salary range · Equity mentioned · Posted date ·
 Company type / industry · Company size · Funding stage / public · HQ · Company description · Job URL ·
-Company website · Source · **Status** (dropdown) · **My feedback** · **Best resume**
+Company website · Source · **Status** (dropdown) · **My feedback** · **Best resume** · **LinkedIn URL**
 
 Company facts come from a web search by Claude. Anything it can't confirm is written as `unknown`, never guessed.
 
@@ -158,6 +158,18 @@ Tips:
 - Say what's a **must** and what's a **nice to have**. Claude excludes on the musts and scores on the nice-to-haves.
 - Short bullets work better than long paragraphs.
 - If results are too broad, add to "Don't show me" or give feedback (below). If they're too narrow, loosen the musts.
+
+## LinkedIn URL column
+
+Every row gets a LinkedIn link, without the agent ever logging in to or opening LinkedIn:
+1. **The exact posting** (`linkedin.com/jobs/view/<id>`) when Google Jobs returned a LinkedIn apply link for that employer.
+2. Otherwise **a LinkedIn job search** for that title at that company over the past month. Click it while you're logged in
+   and the posting is usually the first result.
+
+There's also an opt-in step, `JOBSCOUT_LINKEDIN_SEARCH=1`, which asks Claude to web-search linkedin.com for the exact posting
+(~5¢ per job). It's off by default because postings from the last few days are rarely in the web index yet.
+To fill the column for rows added before it existed: `python -m jobscout backfill-linkedin --profile <name>`. This writes
+only to empty cells in that column.
 
 ## Resume library
 

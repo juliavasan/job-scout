@@ -367,6 +367,17 @@ class DriveProfileStore:
             # RAW so text from postings is never interpreted as a formula.
             self._ws(TAB_JOBS).append_rows(rows, value_input_option="RAW", insert_data_option="INSERT_ROWS", table_range="A1")
 
+    def fill_empty_cells(self, column: str, values: dict[int, str]) -> int:
+        """Write values into EMPTY cells of one agent-owned column. values: {sheet row number: value}."""
+        ws = self._ws(TAB_JOBS)
+        header = ws.row_values(1)
+        col = header.index(column) + 1
+        current = ws.col_values(col)
+        cells = [gspread.Cell(r, col, v) for r, v in values.items() if v and (r > len(current) or not current[r - 1].strip())]
+        if cells:
+            ws.update_cells(cells, value_input_option="RAW")
+        return len(cells)
+
     def append_log(self, row: list) -> None:
         self._ws(TAB_LOG).append_row([str(c) for c in row], value_input_option="RAW", table_range="A1")
 

@@ -172,6 +172,38 @@ def cmd_run(args) -> int:
     return 1 if failures else 0
 
 
+def cmd_backfill_linkedin(args) -> int:
+    """Fill the (new) LinkedIn URL column for existing rows. Touches only empty cells in that column."""
+    from concurrent.futures import ThreadPoolExecutor
+
+    from . import linkedin
+    from .google_io import DriveProfileStore, setup_profile
+    from .llm import Claude
+
+    drive, _ = _drive()
+    for name, folder_id in _profiles(drive, args.profile):
+        files, _ = setup_profile(drive, name, folder_id)  # adds the column header if missing
+        store = DriveProfileStore(drive, files)
+        rows = store.read_jobs()
+        todo = {i + 2: r for i, r in enumerate(rows) if not (r.get("LinkedIn URL") or "").strip()}
+        claude = Claude() if linkedin.SEARCH_ENABLED else None
+
+        def resolve(item):
+            rownum, r = item
+            return rownum, linkedin.resolve(claude, r.get("Job title", ""), r.get("Company", ""), r.get("Location", ""), [r.get("Job URL", "")])
+
+        with ThreadPoolExecutor(4) as pool:
+            results = dict(pool.map(resolve, todo.items()))
+        kinds = [k for _, k in results.values()]
+        written = store.fill_empty_cells("LinkedIn URL", {r: u for r, (u, _) in results.items()})
+        label = f"profile-{list(dict(_profiles(drive, 'all'))).index(name) + 1}" if IN_CI else name
+        print(f"{label}: filled {written} LinkedIn URL cell(s): {kinds.count('posting')} from known links, "
+              f"{kinds.count('found')} found by search, {kinds.count('search')} LinkedIn search links"
+              + (f" (~${claude.usage['cost_usd']:.2f})" if claude else ""))
+
+    return 0
+
+
 def cmd_template(args) -> int:
     from .google_io import BRIEF_TEMPLATE
 
@@ -191,6 +223,10 @@ def main(argv: list[str] | None = None) -> int:
     r.add_argument("--profile", required=True, help="person's folder name, or 'all'")
     r.add_argument("--dry-run", action="store_true", help="print what would be added; write nothing")
     r.set_defaults(func=cmd_run)
+
+    b = sub.add_parser("backfill-linkedin", help="fill the LinkedIn URL column for existing rows (empty cells only)")
+    b.add_argument("--profile", required=True, help="person's folder name, or 'all'")
+    b.set_defaults(func=cmd_backfill_linkedin)
 
     t = sub.add_parser("template", help="print the brief template to paste into a Brief doc")
     t.set_defaults(func=cmd_template)
