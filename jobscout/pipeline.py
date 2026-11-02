@@ -51,18 +51,19 @@ class RunReport:
 def validate_brief(brief: str) -> None:
     body = _LEARNED_RE.split(brief)[0].strip()
     if len(body) < 40:
-        raise ConfigError("Brief!A1 is empty or too short — write your search brief there first")
+        raise ConfigError("the Brief doc is empty or too short — write your search brief there first")
     if "$XXXk" in body or "(e.g. Forward Deployed" in body:
-        raise ConfigError("Brief!A1 still contains the template placeholders — fill it in first")
+        raise ConfigError("the Brief doc still contains the template placeholders — fill it in first")
 
 
-def append_learned(brief: str, rules: list[str], day: str) -> str:
+def learned_addition(brief: str, rules: list[str], day: str) -> str:
+    """Text to append at the end of the brief (adds the section header the first time)."""
     if not rules:
-        return brief
-    text = brief.rstrip()
-    if not _LEARNED_RE.search(text):
-        text += "\n\n" + LEARNED_HEADER
-    return text + "\n" + "\n".join(f"- [{day}] {r}" for r in rules) + "\n"
+        return ""
+    lines = "\n".join(f"- [{day}] {r}" for r in rules)
+    if _LEARNED_RE.search(brief):
+        return ("" if brief.endswith("\n") else "\n") + lines + "\n"
+    return "\n\n" + LEARNED_HEADER + "\n" + lines + "\n"
 
 
 def _row_keys(row: dict) -> tuple[str, str]:
@@ -103,9 +104,10 @@ def run_profile(
             rep.learned = L.learn_exclusions(claude, brief, pending)
             if rep.learned:
                 fresh = store.read_brief()  # re-read right before writing, in case it was edited from a phone
-                brief = append_learned(fresh, rep.learned, day)
+                addition = learned_addition(fresh, rep.learned, day)
                 if not dry_run:
-                    store.write_brief(brief)
+                    store.append_to_brief(addition)  # append-only: your text and formatting stay untouched
+                brief = fresh + addition
             state_rows += [[STATE_FEEDBACK, k, day] for k in pending_keys]
         except L.LLMError as e:
             rep.errors.append(f"learn: {e}")
@@ -117,10 +119,7 @@ def run_profile(
     except L.LLMError as e:
         rep.errors.append(f"plan: {e}")
         plan = SearchPlan(queries=[])
-    try:
-        plan.ats_boards = parse_watchlist(store.read_watchlist())
-    except Exception as e:  # watchlist is optional
-        log.debug("no watchlist: %s", e)
+    plan.ats_boards = parse_watchlist(brief)  # optional `greenhouse:acme` lines in the brief
     raw: list[RawJob] = []
     for src in sources:
         try:

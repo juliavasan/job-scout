@@ -1,6 +1,6 @@
 """Public ATS job boards (Greenhouse, Lever, Ashby). Free, no key, no login.
 
-Boards come from the optional watchlist in the sheet's `Brief` tab (cell B2),
+Boards come from the optional "Companies to watch" lines in the brief,
 one per line, e.g. `greenhouse:anthropic`, `lever:mistral`, `ashby:openai`.
 Only titles matching the brief's keywords are kept, so a big board doesn't
 flood the LLM step.

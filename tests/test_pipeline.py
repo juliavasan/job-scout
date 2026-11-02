@@ -24,8 +24,7 @@ class FakeStore:
         self.state: list[list[str]] = [STATE_COLUMNS]
 
     def read_brief(self): return self.brief
-    def write_brief(self, t): self.brief = t
-    def read_watchlist(self): return ""
+    def append_to_brief(self, t): self.brief += t
     def read_jobs(self): return [dict(zip(self.jobs[0], r)) for r in self.jobs[1:]]
     def append_jobs(self, rows): self.jobs += [list(r) for r in rows]
     def append_log(self, row): self.log.append(row)
@@ -77,7 +76,7 @@ class DummyClaude:
     usage = {"calls": 0, "input_tokens": 0, "output_tokens": 0}
 
 
-P = Profile(name="t", sheet_id="x")
+P = Profile(name="t")
 
 
 def test_first_run_adds_second_run_dedups(fake_llm):
@@ -132,12 +131,12 @@ def test_dry_run_writes_nothing():
 def test_cap_respected():
     store = FakeStore()
     jobs = [J(f"Forward Deployed Engineer {i}", f"Co{i}") for i in range(30)]
-    rep = pipeline.run_profile(Profile(name="t", sheet_id="x", max_new_rows=25), store, DummyClaude(), [FakeSource(jobs)])
+    rep = pipeline.run_profile(Profile(name="t", max_new_rows=25), store, DummyClaude(), [FakeSource(jobs)])
     assert rep.added == 25 and rep.skipped_over_cap == 5
 
 
 def test_template_brief_rejected():
-    from jobscout.sheets import BRIEF_TEMPLATE
+    from jobscout.google_io import BRIEF_TEMPLATE
     with pytest.raises(ConfigError):
         pipeline.run_profile(P, FakeStore(BRIEF_TEMPLATE), DummyClaude(), [])
 
@@ -145,3 +144,10 @@ def test_template_brief_rejected():
 def test_strict_schema_shape():
     s = L._strict_schema(L.Judgment)
     assert s["additionalProperties"] is False and set(s["required"]) == set(s["properties"])
+
+
+def test_learned_addition_appends_header_once():
+    a = pipeline.learned_addition("my brief", ["Exclude X"], "2026-11-03")
+    assert a.startswith("\n\n" + LEARNED_HEADER) and a.endswith("- [2026-11-03] Exclude X\n")
+    b = pipeline.learned_addition("my brief" + a, ["Exclude Y"], "2026-11-04")
+    assert LEARNED_HEADER not in b and b == "- [2026-11-04] Exclude Y\n"

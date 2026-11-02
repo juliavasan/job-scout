@@ -1,8 +1,8 @@
 # Architecture
 
 Job Scout is a small batch pipeline that runs once a day. It has no server, no database and no UI.
-**Each person's Google Sheet is their UI and their storage.** GitHub Actions is the scheduler,
-and Claude does the reasoning.
+**Each person's Drive folder is their UI and their storage**: a Brief doc to steer the search, and a
+Jobs sheet that collects results and feedback. GitHub Actions is the scheduler, and Claude does the reasoning.
 
 ## System overview
 
@@ -17,14 +17,19 @@ flowchart LR
         S1["ANTHROPIC_API_KEY"]
         S2["SERPAPI_API_KEY"]
         S3["GOOGLE_SERVICE_ACCOUNT_JSON"]
-        S4["PROFILES_YAML<br/>profile → sheet ID"]
+        S4["JOBSCOUT_ROOT_FOLDER_ID"]
     end
 
-    subgraph SHEET["Google Sheet — one per person"]
-        BRIEF["Brief tab<br/>A1: search brief + learned exclusions<br/>B2: ATS watchlist"]
-        JOBS["Jobs tab<br/>23 columns, Status dropdown"]
-        LOG["Log tab<br/>one row per run"]
-        STATE["_state tab (hidden)<br/>processed feedback, rejected jobs"]
+    subgraph DRIVE["Google Drive — 'Job Scout' folder, shared with the service account only"]
+        direction TB
+        subgraph P1["julia/"]
+            B1["Brief (Google Doc)<br/>search brief + learned exclusions"]
+            J1["Jobs (Google Sheet)<br/>Jobs · Log · _state tabs"]
+        end
+        subgraph P2["friend/"]
+            B2["Brief"]
+            J2["Jobs"]
+        end
     end
 
     subgraph SOURCES["Job sources (pluggable)"]
@@ -39,26 +44,30 @@ flowchart LR
     end
 
     SECRETS -.-> CLI
-    CLI <-->|"service account<br/>read brief/rows, append rows"| SHEET
+    CLI <-->|"service account (Drive, Docs, Sheets APIs)<br/>read brief + rows, append rows"| DRIVE
     CLI --> HAIKU
     CLI --> SERP
     CLI --> ATS
     CLI --> SONNET
     CLI --> WEB
-    USER(["You, on phone or laptop"]) <-->|"edit brief, set Status,<br/>write feedback"| SHEET
+    USER(["You, on phone or laptop"]) <-->|"edit brief, set Status,<br/>write feedback"| DRIVE
 ```
+
+**Profiles are folders.** Every subfolder of the root "Job Scout" folder is one person. To add someone, you add
+a folder with a `Brief` doc and an empty `Jobs` sheet. There's no config file and no secret to change.
 
 ## One run, step by step
 
 ```mermaid
 flowchart TD
-    A["Load profile → open sheet"] --> B["Read Brief!A1, all Jobs rows, _state"]
+    A["List subfolders of the root folder → one profile each"] --> A2["Find Brief doc + Jobs sheet;<br/>add missing tabs/headers"]
+    A2 --> B["Read the brief, all Jobs rows, _state"]
     B --> C{"New 'Not a fit' rows<br/>with feedback?"}
     C -- yes --> D["Claude: turn feedback into<br/>general exclusion rules"]
-    D --> E["Append dated rules to<br/>'Learned exclusions' in Brief!A1"]
+    D --> E["Append dated rules to the end<br/>of the Brief doc"]
     C -- no --> F
     E --> F["Claude Haiku: brief → 3–4 search queries<br/>+ title keywords"]
-    F --> G["Fetch: SerpApi Google Jobs<br/>+ ATS watchlist boards"]
+    F --> G["Fetch: SerpApi Google Jobs<br/>+ 'Companies to watch' ATS boards"]
     G --> H["Drop postings older than 7 days"]
     H --> I["Dedup<br/>1. canonical URL<br/>2. company + title + location<br/>3. company + title marked Not a fit<br/>4. rejected in an earlier run"]
     I --> J["Claude Sonnet: judge each candidate<br/>against brief + learned exclusions<br/>→ validated JSON"]
@@ -77,16 +86,16 @@ flowchart TD
 sequenceDiagram
     autonumber
     participant CLI as jobscout CLI
-    participant SH as Google Sheet
+    participant G as Google Drive / Docs / Sheets
     participant C as Claude API
     participant SA as SerpApi
     participant ATS as ATS boards
 
-    CLI->>SH: read Brief!A1, Jobs rows, _state
+    CLI->>G: list profile folder, read Brief doc, Jobs rows, _state
     opt new "Not a fit" feedback
         CLI->>C: learn_exclusions(brief, feedback)
         C-->>CLI: ["Exclude sales-heavy roles", ...]
-        CLI->>SH: re-read Brief!A1, append dated rules
+        CLI->>G: re-read Brief, append dated rules at the end
     end
     CLI->>C: plan_searches(brief) [Haiku]
     C-->>CLI: queries + title keywords
@@ -94,7 +103,7 @@ sequenceDiagram
         CLI->>SA: google_jobs search
         SA-->>CLI: ~10 postings
     end
-    CLI->>ATS: watchlist boards (optional)
+    CLI->>ATS: watched companies' boards (optional)
     ATS-->>CLI: postings matching title keywords
     Note over CLI: dedup against sheet + _state
     par up to 4 at a time
@@ -105,7 +114,7 @@ sequenceDiagram
         CLI->>C: company_facts(company) [Sonnet + web_search]
         C-->>CLI: CompanyFacts JSON
     end
-    CLI->>SH: append Jobs rows, _state rows, Log row
+    CLI->>G: append Jobs rows, _state rows, Log row
 ```
 
 ## Feedback loop
@@ -114,27 +123,29 @@ sequenceDiagram
 flowchart LR
     R["Row in Jobs"] -->|"you set Status = Not a fit<br/>+ My feedback = 'too sales-heavy'"| N["Next run"]
     N --> L["Claude generalizes:<br/>'Exclude roles that are mostly<br/>quota-carrying sales'"]
-    L --> B["Brief!A1 gets<br/>- [2026-11-03] Exclude ..."]
+    L --> B["Brief doc gets<br/>- [2026-11-03] Exclude ..."]
     B --> J["Every later judge call<br/>sees the new rule"]
     B -.->|"you can edit or delete it"| B
 ```
 
 - The feedback key is (row URL, company+title+location, feedback text), stored in `_state`. Each piece of feedback is processed once. Editing the feedback text counts as new feedback.
 - If you delete a learned rule, it stays deleted, because the feedback that produced it is already marked processed.
-- Rows are never edited. The only writes to existing content are appends to the end of `Brief!A1`, and the agent re-reads the cell just before writing so it doesn't overwrite an edit you made from your phone.
+- The brief is updated with an **insert at the end** (Docs API), not a rewrite, so your text and formatting are never touched.
+  It is re-read just before writing.
 
 ## Code map
 
 ```
 jobscout/
-├── cli.py              argparse: run, init-sheet. Isolates profiles; CI-safe logging
-├── config.py           profiles (profiles.yaml or PROFILES_YAML), credentials from env
+├── cli.py              setup / run / template commands; isolates profiles; CI-safe logging
+├── config.py           env-based settings, service-account credentials, Profile
 ├── models.py           RawJob dataclass, sheet column layout, tab names
 ├── pipeline.py         run_profile(): the steps above, plus RunReport
 ├── llm.py              Claude wrapper (structured JSON, Pydantic validation, pause_turn,
 │                       refusal fallback) and the 4 tasks: plan / judge / facts / learn
 ├── dedup.py            canonical_url(), job_key(), company_title_key()
-├── sheets.py           SheetStore (gspread), init_sheet() formatting + brief template
+├── google_io.py        Drive (list, read/append brief), profile discovery,
+│                       sheet layout, DriveProfileStore
 └── sources/
     ├── base.py         Source ABC, SearchPlan, date parsing
     ├── serpapi_google_jobs.py   Google Jobs → RawJob; prefers LinkedIn apply link
@@ -145,20 +156,24 @@ jobscout/
 |---|---|---|
 | `pipeline` | `llm`, `dedup`, `sources`, a store object | nothing directly (store + sources are injected, so tests use fakes) |
 | `llm` | `anthropic`, `pydantic` | Anthropic Messages API |
-| `sheets` | `gspread`, `google-auth` | Google Sheets API |
+| `google_io` | `gspread`, `google-auth` | Google Drive, Docs and Sheets APIs |
 | `sources/*` | `httpx` | SerpApi, ATS public APIs |
 
 ## Data model
 
-**`Jobs`** (append-only, read by header name so you can add your own columns on the right):
+**Brief** (Google Doc or `.txt`): free text. Sections: target roles, seniority, location, compensation,
+company preferences, nice-to-haves, "Don't show me", optional "Companies to watch" (`greenhouse:acme`),
+then the auto-maintained "Learned exclusions".
+
+**Jobs tab** (append-only, read by header name so you can add your own columns on the right):
 Date added · Fit score · Job title · Company · Why it fits · Concerns · Location · Work mode ·
 Employment type · Seniority · Salary range · Equity mentioned · Posted date · Company type/industry ·
 Company size · Funding stage · HQ · Company description · Job URL · Company website · Source ·
 **Status** (New / Interested / Applied / Not a fit) · **My feedback**
 
-**`Log`**: Run at (UTC) · Found · Added · Skipped: duplicate · Skipped: excluded/low score · Skipped: over cap · New learned exclusions · Errors
+**Log tab**: Run at (UTC) · Found · Added · Skipped: duplicate · Skipped: excluded/low score · Skipped: over cap · New learned exclusions · Errors
 
-**`_state`** (hidden): Kind (`feedback_processed` / `rejected`) · Key · Date
+**_state tab** (hidden): Kind (`feedback_processed` / `rejected`) · Key · Date
 
 ## Claude calls
 
@@ -177,31 +192,36 @@ are framed as data in every prompt, never as instructions.
 
 | Concern | How it's handled |
 |---|---|
-| One profile fails | Caught per profile; error goes to that sheet's `Log`; others continue; exit code 1 |
-| One source fails | Recorded in `Log.Errors`; other sources still used |
+| One profile fails (e.g. missing Brief) | Caught per profile; error goes to that sheet's Log; others continue; exit code 1 |
+| One source fails | Recorded in Log → Errors; other sources still used |
 | One judge call fails | Skipped; the posting is not recorded as rejected, so it gets another chance tomorrow |
 | Cost runaway | ≤4 searches, ≤80 judged, ≤25 added per profile per run; rejected postings and known companies remembered |
 | Duplicate cron runs | `concurrency: jobscout` in the workflow; dedup makes reruns safe anyway |
 | DST | Cron is UTC: 6 AM PST / 7 AM PDT (see README) |
 
-## Privacy boundary
+## Security and privacy
 
 ```mermaid
 flowchart LR
     subgraph PUBLIC["Public: GitHub repo + Actions logs"]
-        CODE["code, tests, README,<br/>profiles.example.yaml"]
-        LOGS["CI logs: counts and<br/>error types only"]
+        CODE["code, tests, docs"]
+        LOGS["CI logs: counts and error types,<br/>people shown as profile-1, profile-2"]
     end
     subgraph PRIVATE["Private"]
-        SEC["GitHub Secrets:<br/>API keys, service account,<br/>profile → sheet ID"]
-        SHT["Google Sheets:<br/>briefs, salary, feedback, results"]
-        LOCAL[".env, profiles.yaml,<br/>secrets/ (gitignored)"]
+        SEC["GitHub Secrets:<br/>API keys, service-account key,<br/>root folder ID"]
+        DRV["Google Drive 'Job Scout' folder:<br/>briefs, salary, feedback, results"]
+        LOCAL[".env, secrets/ (gitignored)"]
     end
     SEC -.->|"injected at runtime"| LOGS
+    SA["Service account"] -->|"Editor on ONE folder only"| DRV
 ```
+
+- **Least privilege:** the service account has no access to anything except the folder you share with it. Un-sharing the folder revokes access immediately.
+- **No personal data in the repo:** profiles are discovered from Drive at runtime. There's no `profiles.yaml` and no names or IDs in code.
+- **Prompt-injection hygiene:** postings and web pages are untrusted input. Prompts label them as data, outputs are schema-constrained, and the agent can only append rows (it can't delete anything).
 
 ## Extending
 
 - **New source:** subclass `Source`, implement `fetch(plan, max_age_days) -> list[RawJob]`, and add it in `cli.py`. Dedup, judging and enrichment apply to it automatically.
 - **New column:** add it to `JOBS_COLUMNS` (at the end, so existing sheets stay aligned) and fill it in `pipeline.py` step 6.
-- **New person:** a new sheet, `init-sheet`, and one line in `PROFILES_YAML`. No code change.
+- **New person:** a new subfolder with `Brief` + `Jobs`. No code or config change.

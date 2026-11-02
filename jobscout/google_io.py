@@ -1,0 +1,312 @@
+"""Google Drive / Docs / Sheets access via a service account.
+
+You share ONE folder with the service account's email; it sees nothing else.
+
+    Job Scout/                 <- root folder (its ID goes in JOBSCOUT_ROOT_FOLDER_ID)
+      julia/                   <- one subfolder per person = one profile
+        Brief                  <- Google Doc (or .txt) with the search brief
+        Jobs                   <- Google Sheet (you create it empty; tabs are added automatically)
+      friend/
+        ...
+
+Service accounts can't own files in your Drive, so you create the Doc and the
+Sheet by hand; the agent only edits them.
+
+Everything is append-only: the agent appends rows to the sheet and appends
+"Learned exclusions" lines to the end of the brief; it never edits your rows.
+"""
+from __future__ import annotations
+
+import logging
+from dataclasses import dataclass
+
+import gspread
+from google.auth.transport.requests import AuthorizedSession
+from google.oauth2.service_account import Credentials
+
+from .models import (
+    JOBS_COLUMNS, LEARNED_HEADER, LOG_COLUMNS, STATE_COLUMNS, STATUS_VALUES,
+    TAB_JOBS, TAB_LOG, TAB_STATE,
+)
+
+log = logging.getLogger(__name__)
+
+# Drive scope covers the Sheets and Docs APIs too. The service account can only
+# reach files/folders explicitly shared with its email.
+SCOPES = ["https://www.googleapis.com/auth/drive"]
+
+DRIVE = "https://www.googleapis.com/drive/v3"
+DOCS = "https://docs.googleapis.com/v1"
+MIME_FOLDER = "application/vnd.google-apps.folder"
+MIME_DOC = "application/vnd.google-apps.document"
+MIME_SHEET = "application/vnd.google-apps.spreadsheet"
+TEXT_MIMES = ("text/plain", "text/markdown", "text/x-markdown")
+
+BRIEF_TEMPLATE = """Target roles:
+- (e.g. Forward Deployed Engineer, Solutions Engineer, Technical PM for AI products)
+
+Seniority: (e.g. Senior / Staff; no junior roles)
+Location / remote: (e.g. Remote in the US, or hybrid in the SF Bay Area at most 2 days/week)
+Employment type: (e.g. full-time only)
+
+Compensation:
+- Base salary required, $XXXk+ base.
+- Salary + equity is great.
+- Equity-only (common at early startups) does NOT count — exclude.
+
+Company preferences: (stage, size, industry — e.g. Series B+ or public, 50+ employees, AI/devtools)
+
+Nice to have: (anything that should raise the score)
+
+Don't show me:
+- Staffing / recruiting agencies
+- Roles requiring on-site 5 days a week in SF
+- Crypto / web3
+
+Companies to watch (optional, one per line — checks their job boards directly):
+# greenhouse:anthropic
+# lever:mistral
+# ashby:openai
+
+"""
+
+
+class GoogleSetupError(RuntimeError):
+    pass
+
+
+# ---------- auth ----------
+
+def credentials_from_service_account(info: dict) -> Credentials:
+    return Credentials.from_service_account_info(info, scopes=SCOPES)
+
+
+# ---------- Drive helpers ----------
+
+class Drive:
+    def __init__(self, creds: Credentials):
+        self.creds = creds
+        self.http = AuthorizedSession(creds)
+        self.gc = gspread.authorize(creds)
+
+    def _check(self, r, what: str):
+        if r.status_code >= 400:
+            hint = ""
+            if r.status_code == 403 and ("has not been used" in r.text or "is disabled" in r.text):
+                hint = " — enable this API in your Google Cloud project (README step 2)"
+            elif r.status_code in (403, 404):
+                hint = " — is the 'Job Scout' folder shared with the service account email as Editor?"
+            raise GoogleSetupError(f"{what}: HTTP {r.status_code}{hint}")
+        return r
+
+    def get(self, file_id: str) -> dict:
+        r = self.http.get(f"{DRIVE}/files/{file_id}", params={"fields": "id,name,mimeType,trashed", "supportsAllDrives": "true"})
+        return self._check(r, "open Drive item").json()
+
+    def children(self, folder_id: str) -> list[dict]:
+        out, token = [], None
+        while True:
+            params = {
+                "q": f"'{folder_id}' in parents and trashed = false",
+                "fields": "nextPageToken, files(id,name,mimeType,modifiedTime)",
+                "pageSize": 200, "orderBy": "name",
+                "supportsAllDrives": "true", "includeItemsFromAllDrives": "true",
+            }
+            if token:
+                params["pageToken"] = token
+            data = self._check(self.http.get(f"{DRIVE}/files", params=params), "list folder").json()
+            out += data.get("files", [])
+            token = data.get("nextPageToken")
+            if not token:
+                return out
+
+    # --- brief file (Google Doc or plain text) ---
+    def read_text(self, f: dict) -> str:
+        if f["mimeType"] == MIME_DOC:
+            r = self.http.get(f"{DRIVE}/files/{f['id']}/export", params={"mimeType": "text/plain"})
+        else:
+            r = self.http.get(f"{DRIVE}/files/{f['id']}", params={"alt": "media", "supportsAllDrives": "true"})
+        self._check(r, "read brief")
+        return r.content.decode("utf-8-sig").replace("\r\n", "\n")
+
+    def append_text(self, f: dict, text: str) -> None:
+        if f["mimeType"] == MIME_DOC:
+            doc = self._check(self.http.get(f"{DOCS}/documents/{f['id']}", params={"fields": "body(content(endIndex))"}), "open brief doc").json()
+            end = doc["body"]["content"][-1]["endIndex"] - 1
+            body = {"requests": [{"insertText": {"location": {"index": max(1, end)}, "text": text}}]}
+            self._check(self.http.post(f"{DOCS}/documents/{f['id']}:batchUpdate", json=body), "append to brief doc")
+        else:
+            current = self.read_text(f)
+            r = self.http.patch(f"https://www.googleapis.com/upload/drive/v3/files/{f['id']}",
+                                params={"uploadType": "media", "supportsAllDrives": "true"},
+                                data=(current + text).encode(), headers={"Content-Type": "text/plain; charset=utf-8"})
+            self._check(r, "append to brief file")
+
+
+# ---------- profile discovery ----------
+
+@dataclass
+class ProfileFiles:
+    name: str
+    folder_id: str
+    brief: dict | None
+    sheet: dict | None
+
+
+def _pick(files: list[dict], prefer: tuple[str, ...]) -> dict | None:
+    if not files:
+        return None
+    for word in prefer:
+        for f in files:
+            if word in f["name"].lower():
+                return f
+    return files[0] if len(files) == 1 else None
+
+
+def find_profile_files(drive: Drive, name: str, folder_id: str) -> ProfileFiles:
+    kids = drive.children(folder_id)
+    briefs = [f for f in kids if f["mimeType"] == MIME_DOC or f["mimeType"] in TEXT_MIMES or f["name"].lower().endswith((".txt", ".md"))]
+    sheets = [f for f in kids if f["mimeType"] == MIME_SHEET]
+    brief = _pick(briefs, ("brief", "search", "looking", "criteria", "what"))
+    if briefs and brief is None:
+        raise GoogleSetupError(f"folder {name!r} has several text files; name the one to use 'Brief'")
+    sheet = _pick(sheets, ("job",))
+    if sheets and sheet is None:
+        raise GoogleSetupError(f"folder {name!r} has several sheets; put 'Jobs' in the name of the one to use")
+    return ProfileFiles(name=name, folder_id=folder_id, brief=brief, sheet=sheet)
+
+
+def discover_profiles(drive: Drive, root_folder_id: str) -> list[tuple[str, str]]:
+    """Each subfolder of the root folder is a profile: [(folder name, folder id)]."""
+    root = drive.get(root_folder_id)
+    if root.get("mimeType") != MIME_FOLDER:
+        raise GoogleSetupError("JOBSCOUT_ROOT_FOLDER_ID does not point to a folder")
+    return [(f["name"].strip(), f["id"]) for f in drive.children(root_folder_id)
+            if f["mimeType"] == MIME_FOLDER and not f["name"].startswith(("_", "."))]
+
+
+# ---------- sheet formatting ----------
+
+def ensure_sheet_layout(gc: gspread.Client, sheet_id: str) -> list[str]:
+    """Create/repair Jobs, Log and hidden _state tabs. Never overwrites existing content."""
+    sh = gc.open_by_key(sheet_id)
+    done: list[str] = []
+    existing = {ws.title: ws for ws in sh.worksheets()}
+
+    # A brand-new sheet has one empty default tab ("Sheet1"); reuse it for Jobs.
+    default = None
+    if len(existing) == 1:
+        (only,) = existing.values()
+        if only.title not in (TAB_JOBS, TAB_LOG, TAB_STATE) and not any(any(r) for r in only.get_all_values()):
+            default = only
+
+    def ensure(title: str, cols: int) -> gspread.Worksheet:
+        nonlocal default
+        if title in existing:
+            return existing[title]
+        if default is not None:
+            ws, default = default, None
+            existing.pop(ws.title)
+            ws.update_title(title)
+            ws.resize(rows=1000, cols=cols)
+            done.append(f"renamed default tab -> {title}")
+        else:
+            ws = sh.add_worksheet(title=title, rows=1000, cols=cols)
+            done.append(f"created tab {title}")
+        existing[title] = ws
+        return ws
+
+    jobs = ensure(TAB_JOBS, len(JOBS_COLUMNS))
+    logws = ensure(TAB_LOG, len(LOG_COLUMNS))
+    state = ensure(TAB_STATE, len(STATE_COLUMNS))
+
+    fresh = False
+    for ws, header in ((jobs, JOBS_COLUMNS), (logws, LOG_COLUMNS), (state, STATE_COLUMNS)):
+        first = ws.row_values(1)
+        if not any(first):
+            ws.update([header], "A1", value_input_option="RAW")
+            done.append(f"wrote {ws.title} header")
+            fresh = fresh or ws is jobs
+        elif first[: len(header)] != header:
+            done.append(f"WARNING: {ws.title} header differs from expected; left as is")
+
+    if not fresh and not done:
+        return done  # already set up; don't re-apply formatting every run
+
+    status_col = JOBS_COLUMNS.index("Status")
+    url_col = JOBS_COLUMNS.index("Job URL")
+    requests = [
+        *[{"updateSheetProperties": {"properties": {"sheetId": ws.id, "gridProperties": {"frozenRowCount": 1}},
+                                     "fields": "gridProperties.frozenRowCount"}} for ws in (jobs, logws, state)],
+        *[{"repeatCell": {"range": {"sheetId": ws.id, "startRowIndex": 0, "endRowIndex": 1},
+                          "cell": {"userEnteredFormat": {"textFormat": {"bold": True}}},
+                          "fields": "userEnteredFormat.textFormat.bold"}} for ws in (jobs, logws, state)],
+        {"setDataValidation": {
+            "range": {"sheetId": jobs.id, "startRowIndex": 1, "startColumnIndex": status_col, "endColumnIndex": status_col + 1},
+            "rule": {"condition": {"type": "ONE_OF_LIST", "values": [{"userEnteredValue": v} for v in STATUS_VALUES]},
+                     "strict": True, "showCustomUi": True}}},
+        {"repeatCell": {"range": {"sheetId": jobs.id, "startRowIndex": 1, "startColumnIndex": url_col, "endColumnIndex": url_col + 2},
+                        "cell": {"userEnteredFormat": {"wrapStrategy": "CLIP"}}, "fields": "userEnteredFormat.wrapStrategy"}},
+        {"updateSheetProperties": {"properties": {"sheetId": state.id, "hidden": True}, "fields": "hidden"}},
+    ]
+    sh.batch_update({"requests": requests})
+    done.append("formatted (frozen headers, Status dropdown, hidden _state)")
+    return done
+
+
+def setup_profile(drive: Drive, name: str, folder_id: str) -> tuple[ProfileFiles, list[str]]:
+    """Check the folder has a brief + a sheet, and lay out the sheet's tabs. Never overwrites content."""
+    pf = find_profile_files(drive, name, folder_id)
+    missing = []
+    if pf.brief is None:
+        missing.append("a Google Doc named 'Brief' (paste the template from the README)")
+    if pf.sheet is None:
+        missing.append("an empty Google Sheet named 'Jobs'")
+    if missing:
+        raise GoogleSetupError(f"folder {name!r} needs " + " and ".join(missing))
+    return pf, ensure_sheet_layout(drive.gc, pf.sheet["id"])
+
+
+# ---------- the store used by the pipeline ----------
+
+class DriveProfileStore:
+    """Brief = a doc/text file; Jobs/Log/_state = tabs in the profile's sheet."""
+
+    def __init__(self, drive: Drive, files: ProfileFiles):
+        self.drive = drive
+        self.files = files
+        self.sh = drive.gc.open_by_key(files.sheet["id"])
+
+    # brief
+    def read_brief(self) -> str:
+        return self.drive.read_text(self.files.brief)
+
+    def append_to_brief(self, text: str) -> None:
+        self.drive.append_text(self.files.brief, text)
+
+    # sheet
+    def _ws(self, title: str) -> gspread.Worksheet:
+        return self.sh.worksheet(title)
+
+    def read_jobs(self) -> list[dict]:
+        values = self._ws(TAB_JOBS).get_all_values()
+        if not values:
+            return []
+        header = values[0]
+        return [dict(zip(header, row + [""] * (len(header) - len(row)))) for row in values[1:] if any(c.strip() for c in row)]
+
+    def append_jobs(self, rows: list[list[str]]) -> None:
+        if rows:
+            # RAW so text from postings is never interpreted as a formula.
+            self._ws(TAB_JOBS).append_rows(rows, value_input_option="RAW", insert_data_option="INSERT_ROWS", table_range="A1")
+
+    def append_log(self, row: list) -> None:
+        self._ws(TAB_LOG).append_row([str(c) for c in row], value_input_option="RAW", table_range="A1")
+
+    def read_state(self) -> list[dict]:
+        values = self._ws(TAB_STATE).get_all_values()
+        return [dict(zip(STATE_COLUMNS, r)) for r in values[1:]] if values else []
+
+    def append_state(self, rows: list[list[str]]) -> None:
+        if rows:
+            self._ws(TAB_STATE).append_rows(rows, value_input_option="RAW", table_range="A1")

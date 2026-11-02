@@ -10,7 +10,7 @@ on:
   workflow_dispatch:
     inputs:
       profile:
-        description: "Profile name, or 'all'"
+        description: "Person's folder name, or 'all'"
         default: "all"
         required: true
       dry_run:
@@ -41,9 +41,9 @@ jobs:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           SERPAPI_API_KEY: ${{ secrets.SERPAPI_API_KEY }}
           GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
-          PROFILES_YAML: ${{ secrets.PROFILES_YAML }}
+          JOBSCOUT_ROOT_FOLDER_ID: ${{ secrets.JOBSCOUT_ROOT_FOLDER_ID }}
           PROFILE: ${{ inputs.profile || 'all' }}
           DRY_RUN: ${{ inputs.dry_run && '--dry-run' || '' }}
         # Each profile runs isolated; one failing profile doesn't stop the others.
-        # Logs show counts only (this repo is public, so are its Actions logs).
+        # Logs show counts only, with people shown as profile-1, profile-2 (this repo is public, so are its Actions logs).
         run: python -m jobscout run --profile "$PROFILE" $DRY_RUN
