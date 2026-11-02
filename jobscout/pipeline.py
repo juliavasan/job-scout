@@ -84,6 +84,13 @@ def run_profile(
 
     brief = store.read_brief()
     validate_brief(brief)
+    try:
+        resumes = store.read_resumes()
+    except Exception as e:  # the resume library is optional
+        resumes = []
+        rep.errors.append(f"resumes: {type(e).__name__}: {str(e)[:120]}")
+    resume_names = {n for n, _ in resumes}
+    log.info("[%s] resume library: %d files", profile.name, len(resumes))
     rows = store.read_jobs()
     state = store.read_state()
 
@@ -115,7 +122,7 @@ def run_profile(
 
     # 2) Search
     try:
-        plan = L.plan_searches(claude, brief, profile.max_queries)
+        plan = L.plan_searches(claude, brief, profile.max_queries, resumes)
     except L.LLMError as e:
         rep.errors.append(f"plan: {e}")
         plan = SearchPlan(queries=[])
@@ -155,7 +162,7 @@ def run_profile(
     # 4) Judge
     def _judge(job: RawJob):
         try:
-            return job, L.judge(claude, brief, job), None
+            return job, L.judge(claude, brief, job, resumes), None
         except Exception as e:
             return job, None, f"{type(e).__name__}: {str(e)[:120]}"
 
@@ -216,6 +223,7 @@ def run_profile(
             j.equity_mentioned, job.posted_date.isoformat() if job.posted_date else "unknown",
             f.company_type_industry, f.size_employees, f.funding_stage_or_public, f.hq, f.one_line_description,
             job.url, job.company_website or f.website, job.source, "New", "",
+            j.best_resume if j.best_resume in resume_names else ("none" if not resumes else "unclear"),
         ])
     rep.added = len(rep.rows)
 

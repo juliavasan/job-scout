@@ -25,6 +25,7 @@ class FakeStore:
 
     def read_brief(self): return self.brief
     def append_to_brief(self, t): self.brief += t
+    def read_resumes(self): return getattr(self, 'resumes', [])
     def read_jobs(self): return [dict(zip(self.jobs[0], r)) for r in self.jobs[1:]]
     def append_jobs(self, rows): self.jobs += [list(r) for r in rows]
     def append_log(self, row): self.log.append(row)
@@ -48,15 +49,15 @@ def J(title, company, loc="Remote", url=None, **kw):
 def fake_llm(monkeypatch):
     calls = {"judge": 0, "facts": 0, "learn": []}
 
-    monkeypatch.setattr(L, "plan_searches", lambda c, b, n: SearchPlan(queries=[SearchQuery("fde remote")]))
+    monkeypatch.setattr(L, "plan_searches", lambda c, b, n, r=None: SearchPlan(queries=[SearchQuery("fde remote")]))
 
-    def judge(c, brief, job):
+    def judge(c, brief, job, resumes=None):
         calls["judge"] += 1
         bad = "agency" in job.company.lower() or ("sales" in job.title.lower() and "sales-heavy" in brief)
         return L.Judgment(include=not bad, fit_score=8 if not bad else 2, exclusion_reason="agency" if bad else "",
                           why_it_fits="matches", concerns="none", job_title=job.title, location=job.location,
                           work_mode="Remote", employment_type="FT", seniority="Senior", salary_range="not listed",
-                          equity_mentioned="unknown")
+                          equity_mentioned="unknown", best_resume="FDE resume.pdf")
     monkeypatch.setattr(L, "judge", judge)
 
     def facts(c, company, job):
@@ -151,3 +152,29 @@ def test_learned_addition_appends_header_once():
     assert a.startswith("\n\n" + LEARNED_HEADER) and a.endswith("- [2026-11-03] Exclude X\n")
     b = pipeline.learned_addition("my brief" + a, ["Exclude Y"], "2026-11-04")
     assert LEARNED_HEADER not in b and b == "- [2026-11-04] Exclude Y\n"
+
+
+def test_best_resume_column(fake_llm):
+    store = FakeStore()
+    store.resumes = [("FDE resume.pdf", "Forward deployed engineer, 5 years")]
+    pipeline.run_profile(P, store, DummyClaude(), [FakeSource([J("FDE", "Acme")])])
+    assert store.jobs[1][JOBS_COLUMNS.index("Best resume")] == "FDE resume.pdf"
+    store2 = FakeStore()  # no library -> 'none'
+    pipeline.run_profile(P, store2, DummyClaude(), [FakeSource([J("FDE", "Acme")])])
+    assert store2.jobs[1][JOBS_COLUMNS.index("Best resume")] == "none"
+
+
+def test_resume_block_and_braces_safe():
+    block = L.format_resumes([("a.pdf", "skills {python}")])
+    assert '<resume name="a.pdf">' in block and "{python}" in block
+    system = L.JUDGE_SYSTEM.replace("{brief}", "brief with {braces}").replace("{resumes}", block)
+    assert "{braces}" in system and "<resumes>" in system
+
+
+def test_docx_text():
+    import io, zipfile
+    from jobscout.google_io import docx_text
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as z:
+        z.writestr("word/document.xml", "<w:document><w:body><w:p><w:r><w:t>Jane &amp; Co</w:t></w:r></w:p><w:p><w:r><w:t>Python</w:t></w:r></w:p></w:body></w:document>")
+    assert docx_text(buf.getvalue()) == "Jane & Co\nPython"

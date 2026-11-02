@@ -64,7 +64,7 @@ def _print_rows(name: str, rep) -> None:
 
 
 def cmd_setup(args) -> int:
-    from .google_io import GoogleSetupError, setup_profile
+    from .google_io import DriveProfileStore, GoogleSetupError, setup_profile
 
     drive, email = _drive()
     print(f"Service account: {email}\n(share your 'Job Scout' folder with this email as Editor)\n")
@@ -76,8 +76,14 @@ def cmd_setup(args) -> int:
     bad = 0
     for name, fid in profiles:
         try:
-            _, steps = setup_profile(drive, name, fid)
-            print(f"✓ {name}: " + ("; ".join(steps) if steps else "ready"))
+            files, steps = setup_profile(drive, name, fid)
+            print(f"✓ {name}: " + ("; ".join(steps) if steps else "sheet ready"))
+            if files.resumes_folder:
+                resumes = DriveProfileStore(drive, files).read_resumes()
+                print(f"    resume library '{files.resumes_folder['name']}': {len(resumes)} readable file(s)"
+                      + "".join(f"\n      - {n} ({len(t):,} chars)" for n, t in resumes))
+            else:
+                print("    no 'Resumes' subfolder (optional)")
         except GoogleSetupError as e:
             bad += 1
             print(f"✗ {name}: {e}")

@@ -24,6 +24,7 @@ flowchart LR
         direction TB
         subgraph P1["julia/"]
             B1["Brief (Google Doc)<br/>search brief + learned exclusions"]
+            R1["Resumes/ (optional)<br/>resumes already sent:<br/>Doc · PDF · docx · txt"]
             J1["Jobs (Google Sheet)<br/>Jobs · Log · _state tabs"]
         end
         subgraph P2["friend/"]
@@ -61,16 +62,16 @@ a folder with a `Brief` doc and an empty `Jobs` sheet. There's no config file an
 ```mermaid
 flowchart TD
     A["List subfolders of the root folder → one profile each"] --> A2["Find Brief doc + Jobs sheet;<br/>add missing tabs/headers"]
-    A2 --> B["Read the brief, all Jobs rows, _state"]
+    A2 --> B["Read the brief, resume library, all Jobs rows, _state"]
     B --> C{"New 'Not a fit' rows<br/>with feedback?"}
     C -- yes --> D["Claude: turn feedback into<br/>general exclusion rules"]
     D --> E["Append dated rules to the end<br/>of the Brief doc"]
     C -- no --> F
-    E --> F["Claude Haiku: brief → 3–4 search queries<br/>+ title keywords"]
+    E --> F["Claude Haiku: brief + resumes → 3–4 search queries<br/>+ title keywords"]
     F --> G["Fetch: SerpApi Google Jobs<br/>+ 'Companies to watch' ATS boards"]
     G --> H["Drop postings older than 7 days"]
     H --> I["Dedup<br/>1. canonical URL<br/>2. company + title + location<br/>3. company + title marked Not a fit<br/>4. rejected in an earlier run"]
-    I --> J["Claude Sonnet: judge each candidate<br/>against brief + learned exclusions<br/>→ validated JSON"]
+    I --> J["Claude Sonnet: judge each candidate<br/>against brief + learned exclusions + best-matching resume<br/>→ validated JSON incl. best_resume"]
     J --> K{"include AND<br/>score ≥ min?"}
     K -- no --> L["Record in _state as rejected<br/>so it isn't judged again"]
     K -- yes --> M["Sort by score, keep top 25"]
@@ -91,7 +92,7 @@ sequenceDiagram
     participant SA as SerpApi
     participant ATS as ATS boards
 
-    CLI->>G: list profile folder, read Brief doc, Jobs rows, _state
+    CLI->>G: list profile folder, read Brief doc, Resumes/, Jobs rows, _state
     opt new "Not a fit" feedback
         CLI->>C: learn_exclusions(brief, feedback)
         C-->>CLI: ["Exclude sales-heavy roles", ...]
@@ -144,7 +145,7 @@ jobscout/
 ├── llm.py              Claude wrapper (structured JSON, Pydantic validation, pause_turn,
 │                       refusal fallback) and the 4 tasks: plan / judge / facts / learn
 ├── dedup.py            canonical_url(), job_key(), company_title_key()
-├── google_io.py        Drive (list, read/append brief), profile discovery,
+├── google_io.py        Drive (list, read/append brief, resume text extraction), profile discovery,
 │                       sheet layout, DriveProfileStore
 └── sources/
     ├── base.py         Source ABC, SearchPlan, date parsing
@@ -161,7 +162,10 @@ jobscout/
 
 ## Data model
 
-**Brief** (Google Doc or `.txt`): free text. Sections: target roles, seniority, location, compensation,
+**Resumes/** (optional subfolder): resumes already sent. Up to 8 newest files, text extracted (Docs export, `pypdf`,
+.docx XML, plain text), each truncated to 8k chars, and passed as `<resume name="…">` blocks.
+
+**Brief** (Google Doc or `.txt`): free text. Sections: about me, target roles, seniority, location, compensation,
 company preferences, nice-to-haves, "Don't show me", optional "Companies to watch" (`greenhouse:acme`),
 then the auto-maintained "Learned exclusions".
 
@@ -169,7 +173,8 @@ then the auto-maintained "Learned exclusions".
 Date added · Fit score · Job title · Company · Why it fits · Concerns · Location · Work mode ·
 Employment type · Seniority · Salary range · Equity mentioned · Posted date · Company type/industry ·
 Company size · Funding stage · HQ · Company description · Job URL · Company website · Source ·
-**Status** (New / Interested / Applied / Not a fit) · **My feedback**
+**Status** (New / Interested / Applied / Not a fit) · **My feedback** · **Best resume**
+(new columns are only ever added at the end; `setup` adds them to existing sheets automatically)
 
 **Log tab**: Run at (UTC) · Found · Added · Skipped: duplicate · Skipped: excluded/low score · Skipped: over cap · New learned exclusions · Errors
 
@@ -179,8 +184,8 @@ Company size · Funding stage · HQ · Company description · Job URL · Company
 
 | Task | Model | Input | Output (validated) |
 |---|---|---|---|
-| `plan_searches` | Haiku 5.5 | brief | `QueryPlan{queries[], title_keywords[]}` |
-| `judge` | Sonnet 5.5, effort low | brief (cached system prompt) + one posting | `Judgment{include, fit_score 1–10, exclusion_reason, why_it_fits, concerns, work_mode, salary_range, equity_mentioned, ...}` |
+| `plan_searches` | Haiku 5.5 | brief + resume library | `QueryPlan{queries[], title_keywords[]}` |
+| `judge` | Sonnet 5.5, effort low | brief + resume library (cached system prompt) + one posting | `Judgment{include, fit_score 1–10, exclusion_reason, why_it_fits, concerns, work_mode, salary_range, equity_mentioned, best_resume, ...}` |
 | `company_facts` | Sonnet 5.5 + `web_search` (≤4 searches) | company, job links, excerpt | `CompanyFacts{industry, size, funding, hq, description, website}`, "unknown" if not found |
 | `learn_exclusions` | Sonnet 5.5 | brief + new feedback rows | `LearnedPatterns{new_exclusions[]}` |
 

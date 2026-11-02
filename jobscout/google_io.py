@@ -17,7 +17,10 @@ Everything is append-only: the agent appends rows to the sheet and appends
 """
 from __future__ import annotations
 
+import io
 import logging
+import re
+import zipfile
 from dataclasses import dataclass
 
 import gspread
@@ -41,6 +44,8 @@ MIME_FOLDER = "application/vnd.google-apps.folder"
 MIME_DOC = "application/vnd.google-apps.document"
 MIME_SHEET = "application/vnd.google-apps.spreadsheet"
 TEXT_MIMES = ("text/plain", "text/markdown", "text/x-markdown")
+MIME_PDF = "application/pdf"
+MIME_DOCX = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
 
 BRIEF_TEMPLATE = """About me (paste your resume or a short summary — used to judge whether you're a strong candidate):
 - (e.g. 8 years as a software engineer, last 3 building LLM features at a Series C startup;
@@ -133,6 +138,23 @@ class Drive:
         self._check(r, "read brief")
         return r.content.decode("utf-8-sig").replace("\r\n", "\n")
 
+    def download(self, f: dict) -> bytes:
+        r = self.http.get(f"{DRIVE}/files/{f['id']}", params={"alt": "media", "supportsAllDrives": "true"})
+        return self._check(r, f"download {f['name']}").content
+
+    def resume_text(self, f: dict) -> str | None:
+        """Plain text of a resume file (Google Doc, PDF, .docx, .txt/.md). None if unsupported."""
+        mime, name = f["mimeType"], f["name"].lower()
+        if mime == MIME_DOC or mime in TEXT_MIMES or name.endswith((".txt", ".md")):
+            return self.read_text(f)
+        if mime == MIME_PDF or name.endswith(".pdf"):
+            from pypdf import PdfReader
+            reader = PdfReader(io.BytesIO(self.download(f)))
+            return "\n".join((page.extract_text() or "") for page in reader.pages)
+        if mime == MIME_DOCX or name.endswith(".docx"):
+            return docx_text(self.download(f))
+        return None
+
     def append_text(self, f: dict, text: str) -> None:
         if f["mimeType"] == MIME_DOC:
             doc = self._check(self.http.get(f"{DOCS}/documents/{f['id']}", params={"fields": "body(content(endIndex))"}), "open brief doc").json()
@@ -147,6 +169,17 @@ class Drive:
             self._check(r, "append to brief file")
 
 
+def docx_text(data: bytes) -> str:
+    """Text of a .docx without extra dependencies (paragraphs from word/document.xml)."""
+    with zipfile.ZipFile(io.BytesIO(data)) as z:
+        xml = z.read("word/document.xml").decode("utf-8", "ignore")
+    xml = re.sub(r"</w:p>", "\n", xml)
+    xml = re.sub(r"<w:tab/>", "\t", xml)
+    text = re.sub(r"<[^>]+>", "", xml)
+    import html as _html
+    return re.sub(r"\n{3,}", "\n\n", _html.unescape(text)).strip()
+
+
 # ---------- profile discovery ----------
 
 @dataclass
@@ -155,6 +188,7 @@ class ProfileFiles:
     folder_id: str
     brief: dict | None
     sheet: dict | None
+    resumes_folder: dict | None = None
 
 
 def _pick(files: list[dict], prefer: tuple[str, ...]) -> dict | None:
@@ -177,7 +211,8 @@ def find_profile_files(drive: Drive, name: str, folder_id: str) -> ProfileFiles:
     sheet = _pick(sheets, ("job",))
     if sheets and sheet is None:
         raise GoogleSetupError(f"folder {name!r} has several sheets; put 'Jobs' in the name of the one to use")
-    return ProfileFiles(name=name, folder_id=folder_id, brief=brief, sheet=sheet)
+    resumes = next((f for f in kids if f["mimeType"] == MIME_FOLDER and re.search(r"resume|résumé|\bcv", f["name"], re.I)), None)
+    return ProfileFiles(name=name, folder_id=folder_id, brief=brief, sheet=sheet, resumes_folder=resumes)
 
 
 def discover_profiles(drive: Drive, root_folder_id: str) -> list[tuple[str, str]]:
@@ -231,7 +266,16 @@ def ensure_sheet_layout(gc: gspread.Client, sheet_id: str) -> list[str]:
             ws.update([header], "A1", value_input_option="RAW")
             done.append(f"wrote {ws.title} header")
             fresh = fresh or ws is jobs
-        elif first[: len(header)] != header:
+        elif first[: len(header)] == header:
+            pass
+        elif header[: len(first)] == first:  # older layout: add the new columns at the end
+            missing = header[len(first):]
+            if ws.col_count < len(header):
+                ws.add_cols(len(header) - ws.col_count)
+            start = gspread.utils.rowcol_to_a1(1, len(first) + 1)
+            ws.update([missing], start, value_input_option="RAW")
+            done.append(f"added {ws.title} columns: {', '.join(missing)}")
+        else:
             done.append(f"WARNING: {ws.title} header differs from expected; left as is")
 
     if not fresh and not done:
@@ -287,6 +331,25 @@ class DriveProfileStore:
 
     def append_to_brief(self, text: str) -> None:
         self.drive.append_text(self.files.brief, text)
+
+    def read_resumes(self) -> list[tuple[str, str]]:
+        """[(file name, text)] from the person's Resumes folder, newest first. Empty if no folder."""
+        folder = self.files.resumes_folder
+        if not folder:
+            return []
+        files = sorted(self.drive.children(folder["id"]), key=lambda f: f.get("modifiedTime", ""), reverse=True)
+        out = []
+        for f in files:
+            if f["mimeType"] == MIME_FOLDER:
+                continue
+            try:
+                text = self.drive.resume_text(f)
+            except Exception as e:
+                log.warning("could not read a resume file: %s", type(e).__name__)
+                continue
+            if text and text.strip():
+                out.append((f["name"], text.strip()))
+        return out
 
     # sheet
     def _ws(self, title: str) -> gspread.Worksheet:

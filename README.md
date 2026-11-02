@@ -31,12 +31,13 @@ Job Scout/                                             ┌───────�
 | File | What it is |
 |---|---|
 | **Brief** (Google Doc, or a `.txt`) | Your search brief in plain language. Edit it any time, including from your phone. Learned exclusions are added at the bottom. |
+| **Resumes** (subfolder, optional) | Your resume library: the resumes you've already sent out (Google Docs, PDF, Word .docx, .txt). Claude searches for roles similar to the ones they're tailored to, judges each job against the closest one, and names it in the **Best resume** column. Up to 8 most recently modified files are used. |
 | **Jobs** (Google Sheet) | You create it empty. The agent adds three tabs: **Jobs** (results), **Log** (one row per run) and a hidden **_state** tab (bookkeeping). |
 
 **Jobs tab columns:** Date added · Fit score (1–10) · Job title · Company · Why it fits · Concerns / red flags ·
 Location · Work mode · Employment type · Seniority · Salary range · Equity mentioned · Posted date ·
 Company type / industry · Company size · Funding stage / public · HQ · Company description · Job URL ·
-Company website · Source · **Status** (dropdown) · **My feedback**
+Company website · Source · **Status** (dropdown) · **My feedback** · **Best resume**
 
 Company facts come from a web search by Claude. Anything it can't confirm is written as `unknown`, never guessed.
 
@@ -86,6 +87,7 @@ what you share with it. You can create it from your personal Google account or f
 4. In each person's subfolder, create:
    - a **Google Doc named `Brief`**. Paste the template from `python -m jobscout template` and fill it in.
    - an **empty Google Sheet named `Jobs`**.
+   - optionally a **`Resumes`** subfolder with the resumes you've sent.
 5. Copy the **Job Scout** folder's ID from its URL (`drive.google.com/drive/folders/`**`<THIS_PART>`**) into `.env`
    as `JOBSCOUT_ROOT_FOLDER_ID`.
 6. Check everything:
@@ -130,7 +132,8 @@ types, and refers to people as `profile-1`, `profile-2`. It never prints briefs,
 
 1. Create a subfolder for them in **Job Scout**, with a `Brief` doc and an empty `Jobs` sheet.
 2. Share their subfolder with them, so they can edit their own brief and sheet.
-3. Run `python -m jobscout setup`. That's it. No config change and no secret update; the next daily run includes them.
+3. Optionally add a `Resumes` subfolder with their resumes.
+4. Run `python -m jobscout setup`. That's it. No config change and no secret update; the next daily run includes them.
 
 ## Writing a good brief
 
@@ -155,6 +158,20 @@ Tips:
 - Say what's a **must** and what's a **nice to have**. Claude excludes on the musts and scores on the nice-to-haves.
 - Short bullets work better than long paragraphs.
 - If results are too broad, add to "Don't show me" or give feedback (below). If they're too narrow, loosen the musts.
+
+## Resume library
+
+Put a `Resumes` subfolder in a person's folder and drop in the resumes they've already sent, e.g.
+`FDE - AI startups.pdf`, `Solutions Engineer.docx`, `TPM - platform` (Google Doc). On each run:
+
+- **Search:** the queries also cover the role types those resumes are tailored to (the brief still wins on conflicts).
+- **Judging:** each job is compared with the best-matching resume. "Why it fits" cites that resume's experience, and
+  hard gaps (clearance, license, far more years) lower the score and show up in Concerns.
+- **Best resume column:** the file name of the resume to send for that job.
+
+Descriptive file names help, because they show up in the sheet. Text is extracted locally (PDF via `pypdf`; scanned
+image-only PDFs have no text, so use a Doc or a text PDF). Resumes are included in the cached system prompt, so a library
+of a few resumes adds little cost.
 
 ## How feedback works
 
