@@ -137,6 +137,9 @@ types, and refers to people as `profile-1`, `profile-2`. It never prints briefs,
 The brief is passed **word for word** to Claude as the judging criteria, so write it the way you'd brief a
 recruiter friend. The template's sections:
 
+- **About me.** Paste your resume, or a few lines on your experience, skills and location. Claude uses it to judge
+  whether *you* are a strong candidate. It cites the matching experience in "Why it fits", and when a posting has a hard
+  requirement you clearly lack (clearance, license, far more years) it scores the job low and names the gap in Concerns.
 - **Target roles.** List the actual titles, and also say what the work is ("customer-facing engineering, building
   with customers' data"). Claude also turns this section into the search queries.
 - **Seniority, location / remote, employment type.** Be specific: "Remote (US), or hybrid ≤2 days in SF".
