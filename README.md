@@ -19,6 +19,8 @@ Brief (in your sheet) ─┐
                                        append ≤25 rows to Jobs, 1 row to Log
 ```
 
+See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for diagrams and design details.
+
 - **No LinkedIn login, no cookies, no scraping.** LinkedIn postings come in through Google for
   Jobs (via [SerpApi](https://serpapi.com/google-jobs-api)). When a posting has a LinkedIn link,
   that link goes in the sheet.
