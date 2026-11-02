@@ -158,7 +158,7 @@ def main(argv: list[str] | None = None) -> int:
 
     args = ap.parse_args(argv)
     logging.basicConfig(level=logging.DEBUG if args.verbose else logging.INFO, format="%(levelname)s %(message)s")
-    for noisy in ("httpx", "httpcore", "anthropic", "google", "urllib3"):
+    for noisy in ("httpx", "httpx2", "httpcore", "anthropic", "google", "urllib3"):
         logging.getLogger(noisy).setLevel(logging.WARNING)
     from .google_io import GoogleSetupError
 
