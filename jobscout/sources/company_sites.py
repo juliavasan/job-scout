@@ -23,7 +23,7 @@ from .base import SearchPlan, Source, today
 log = logging.getLogger(__name__)
 
 _EXPLICIT = re.compile(r"^(greenhouse|lever|ashby|smartrecruiters|workday|eightfold):\s*(\S+)(?:\s+(\S+))?$", re.I)
-PER_COMPANY = int(os.environ.get("JOBSCOUT_PER_COMPANY", "15"))
+PER_COMPANY = int(os.environ.get("JOBSCOUT_PER_COMPANY", "5"))
 WATCH_MAX_AGE_DAYS = int(os.environ.get("JOBSCOUT_WATCH_MAX_AGE_DAYS", "30"))
 
 

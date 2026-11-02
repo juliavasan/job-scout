@@ -290,10 +290,20 @@ def _page_text(html_: str) -> str:
 
 
 def verify(url: str, titles: list[str]) -> bool:
-    """The page loads (200), isn't a careers search/landing page, and actually shows this job's title."""
+    return check(url, titles) == "ok"
+
+
+def check(url: str, titles: list[str]) -> str:
+    """'ok' | 'blocked' (site refuses automated requests) | 'bad' (404, redirect to search page, wrong job)."""
     r = _get(url)
-    if r is None or r.status_code != 200:
-        return False
+    if r is None or r.status_code in (400, 401, 403, 429, 503):
+        return "blocked"
+    if r.status_code != 200:
+        return "bad"
+    return "ok" if _shows_job(r, url, titles) else "bad"
+
+
+def _shows_job(r, url: str, titles: list[str]) -> bool:
     final_path = urlsplit(str(r.url)).path
     if _GENERIC_PATH.search(final_path) and not re.search(r"\d{4,}", str(r.url)):
         return False
@@ -435,12 +445,21 @@ class LinkResolver:
             else:
                 out.notes.append(f"{ats.kind} search unavailable")
 
-        # 5) fall back to a verified company-domain link from the apply options
+        # 5) fall back to a company-domain link from the apply options: verified, or (for sites that block
+        #    automated requests, e.g. metacareers.com) trusted because Google Jobs listed it for this job
         if out.company_url == NOT_FOUND:
+            blocked = ""
             for u in urls:
-                if is_company_url(u, company) and looks_like_posting(u, titles) and verify(u, titles):
-                    out.company_url = u
-                    break
+                if is_company_url(u, company) and looks_like_posting(u, titles):
+                    status = check(u, titles)
+                    if status == "ok":
+                        out.company_url = u
+                        break
+                    if status == "blocked" and not blocked:
+                        blocked = u
+            if out.company_url == NOT_FOUND and blocked:
+                out.company_url = blocked
+                out.notes.append("company site blocks automated checks; link taken from Google Jobs")
 
         if out.company_url.startswith("http") and out.date_opened == "unknown":
             d = date_posted_from_page(out.company_url)

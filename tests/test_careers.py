@@ -116,3 +116,15 @@ def test_company_sites_source(monkeypatch):
     jobs = CompanySites(Res()).fetch(plan, 7)
     assert [j.title for j in jobs] == ["Senior Technical Program Manager, Studio"]
     assert jobs[0].company == "Netflix" and jobs[0].description == "full JD" and "careers site (eightfold)" in jobs[0].source
+
+
+def test_blocked_company_site_link_trusted_from_google(monkeypatch):
+    class R:
+        status_code, url, text = 400, "https://www.metacareers.com/profile/job_details/1769900794137147/", ""
+    monkeypatch.setattr(C, "_get", lambda url, **kw: R())
+    monkeypatch.setattr(C, "guess_board", lambda company: None)
+    monkeypatch.setattr(C, "date_posted_from_page", lambda url: None)
+    lk = C.LinkResolver().resolve("Technical Program Manager", "Meta", "Sunnyvale, CA",
+                                  ["https://www.metacareers.com/profile/job_details/1769900794137147/"], None)
+    assert lk.company_url == "https://www.metacareers.com/profile/job_details/1769900794137147/"
+    assert C.check("https://x.com/job/123456", ["TPM"]) == "blocked"
