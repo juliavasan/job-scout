@@ -65,3 +65,24 @@ def test_parse_serpapi_result():
     j = parse_result(item)
     assert j.url.endswith("987654321") and j.other_urls == ["https://acme.com/jobs/1"]
     assert j.salary_hint and j.work_mode_hint == "Remote" and "Python" in j.description and j.posted_date
+
+
+def test_bad_location_falls_back_and_bad_query_is_isolated():
+    from jobscout.sources import SearchPlan, SearchQuery
+    from jobscout.sources.serpapi_google_jobs import SerpApiGoogleJobs
+    calls = []
+
+    class Src(SerpApiGoogleJobs):
+        def _search(self, params):
+            calls.append(params)
+            if params.get("location") == "Los Gatos, CA":
+                raise RuntimeError('SerpApi HTTP 400: {"error": "Unsupported `Los Gatos, CA` location - location parameter."}')
+            if params["q"] == "boom":
+                raise RuntimeError("SerpApi HTTP 500")
+            return {"jobs_results": [{"title": "TPM", "company_name": "Netflix", "location": "Los Gatos, CA",
+                                      "apply_options": [{"title": "Netflix", "link": "https://jobs.netflix.com/1"}]}]}
+
+    src = Src("k", max_queries=3, client=object())
+    jobs = src.fetch(SearchPlan(queries=[SearchQuery("tpm", "Los Gatos, CA"), SearchQuery("boom"), SearchQuery("tpm remote")]), 7)
+    assert len(jobs) == 2 and len(src.errors) == 1
+    assert {"q": "tpm Los Gatos, CA"} in calls

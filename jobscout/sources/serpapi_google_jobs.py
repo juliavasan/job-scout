@@ -138,6 +138,7 @@ class SerpApiGoogleJobs(Source):
         self.pages_per_query = pages_per_query
         self.client = client or httpx.Client(timeout=60)
         self.searches_used = 0
+        self.errors: list[str] = []
 
     def _search(self, params: dict) -> dict:
         self.searches_used += 1
@@ -150,21 +151,47 @@ class SerpApiGoogleJobs(Source):
             raise RuntimeError(f"SerpApi error: {data['error']}")
         return data
 
+    # Locations SerpApi rejected earlier in this run: fold them into the query text up front
+    # so a failing location costs one search per run at most.
+    _bad_locations: set[str] = set()
+
+    def _run_query(self, query, max_age_days: int) -> list[RawJob]:
+        params = {"q": query.q}
+        if query.location and query.location in self._bad_locations:
+            params = {"q": f"{query.q} {query.location}"}
+        elif query.location:
+            params["location"] = query.location
+        out, token = [], None
+        for _ in range(self.pages_per_query):
+            try:
+                data = self._search({**params, **({"next_page_token": token} if token else {})})
+            except RuntimeError as e:
+                if "location" in str(e).lower() and "location" in params:
+                    # SerpApi only knows certain location names; fold it into the query text instead.
+                    self._bad_locations.add(params["location"])
+                    params = {"q": f"{query.q} {params.pop('location')}"}
+                    data = self._search(params)
+                else:
+                    raise
+            for item in data.get("jobs_results") or []:
+                job = parse_result(item)
+                if job.title and job.company and is_recent(job.posted_date, max_age_days):
+                    out.append(job)
+            token = (data.get("serpapi_pagination") or {}).get("next_page_token")
+            if not token:
+                break
+        return out
+
     def fetch(self, plan: SearchPlan, max_age_days: int) -> list[RawJob]:
         out: list[RawJob] = []
+        self.errors = []
         for query in plan.queries[: self.max_queries]:
-            params = {"q": query.q}
-            if query.location:
-                params["location"] = query.location
-            token = None
-            for _ in range(self.pages_per_query):
-                data = self._search({**params, **({"next_page_token": token} if token else {})})
-                for item in data.get("jobs_results") or []:
-                    job = parse_result(item)
-                    if job.title and job.company and is_recent(job.posted_date, max_age_days):
-                        out.append(job)
-                token = (data.get("serpapi_pagination") or {}).get("next_page_token")
-                if not token:
-                    break
+            try:
+                out += self._run_query(query, max_age_days)
+            except Exception as e:  # one bad query shouldn't sink the others
+                self.errors.append(f"serpapi query failed: {str(e)[:150]}")
+                log.warning("serpapi query failed: %s", type(e).__name__)
+        if self.errors and not out:
+            raise RuntimeError("; ".join(self.errors))
         log.info("serpapi: %d searches, %d recent postings", self.searches_used, len(out))
         return out

@@ -169,7 +169,9 @@ class Claude:
 PLAN_SYSTEM = """You turn a job seeker's free-text search brief into Google Jobs searches.
 Write focused queries (role + key qualifier, e.g. 'forward deployed engineer AI remote').
 One role family per query. Respect location/remote preferences from the brief
-(use `location` for a city/region, or put 'remote' in the query text and leave location empty).
+(use `location` only for a major metro written like "San Jose, California" or "San Francisco Bay Area";
+for small towns or specific companies' offices put the place in the query text instead; for remote, put 'remote'
+in the query text and leave location empty).
 Do not add salary numbers or exclusion words to queries.
 If the brief has an "About me" section, use it only to pick the right seniority/wording.
 If <resumes> are given, they are resumes this person has already sent out: also cover the role types those

@@ -131,10 +131,10 @@ def run_profile(
     for src in sources:
         try:
             raw += src.fetch(plan, profile.max_age_days)
+            rep.errors += getattr(src, "errors", [])
         except Exception as e:
             rep.errors.append(f"{src.name}: {type(e).__name__}: {str(e)[:150]}")
             log.warning("[%s] source %s failed: %s", profile.name, src.name, type(e).__name__)
-        rep.errors += getattr(src, "errors", [])
     rep.found = len(raw)
 
     # 3) Dedup (URL first, then company+title+location; also anything marked Not a fit or rejected before)
