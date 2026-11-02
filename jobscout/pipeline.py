@@ -8,7 +8,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 
-from . import linkedin
+from . import company_posting, linkedin
 from . import llm as L
 from .config import ConfigError, Profile
 from .dedup import canonical_url, company_title_key, job_key, normalize_company
@@ -220,11 +220,20 @@ def run_profile(
         job, j = item
         return linkedin.resolve(claude, j.job_title or job.title, job.company, job.location, job.all_urls())[0]
 
+    def _company(item):
+        job, j = item
+        try:
+            return company_posting.resolve(job.company, [job.title, j.job_title], job.all_urls(), job.posted_date, claude)
+        except Exception as e:
+            log.debug("company posting lookup failed: %s", type(e).__name__)
+            return "not found", (f"~{job.posted_date.isoformat()} (job board)" if job.posted_date else "unknown")
+
     with ThreadPoolExecutor(WORKERS) as pool:
         li_urls = list(pool.map(_li, accepted))
+        company_info = list(pool.map(_company, accepted))
 
     # 7) Build + append rows
-    for (job, j), li_url in zip(accepted, li_urls):
+    for (job, j), li_url, (co_url, opened) in zip(accepted, li_urls, company_info):
         f = known.get(normalize_company(job.company), UNKNOWN_FACTS)
         rep.rows.append([
             day, str(j.fit_score), j.job_title or job.title, job.company, j.why_it_fits, j.concerns,
@@ -233,7 +242,7 @@ def run_profile(
             f.company_type_industry, f.size_employees, f.funding_stage_or_public, f.hq, f.one_line_description,
             job.url, job.company_website or f.website, job.source, "New", "",
             j.best_resume if j.best_resume in resume_names else ("none" if not resumes else "unclear"),
-            li_url,
+            li_url, co_url, opened,
         ])
     rep.added = len(rep.rows)
 

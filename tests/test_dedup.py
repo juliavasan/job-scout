@@ -93,10 +93,12 @@ def test_linkedin_resolve_order():
     assert linkedin.resolve(None, "TPM", "Acme", "", ["https://www.linkedin.com/jobs/view/tpm-at-acme-4012345678?trk=x"]) == \
         ("https://linkedin.com/jobs/view/4012345678", "posting")
     url, kind = linkedin.resolve(None, "Senior TPM", "Acme Inc", "", ["https://acme.com/jobs/1"])
-    assert kind == "search" and url == "https://www.linkedin.com/jobs/search/?keywords=Senior+TPM+Acme&f_TPR=r2592000"
+    assert kind == "search" and url == "https://www.linkedin.com/jobs/search/?keywords=Senior+TPM+Acme"
     assert linkedin.search_url("Remote - Senior Technical Program Manager", "NVIDIA Corporation") == \
-        "https://www.linkedin.com/jobs/search/?keywords=Senior+Technical+Program+Manager+NVIDIA&f_TPR=r2592000"
-    assert "Remote" not in linkedin.search_url("Senior TPM, Services Operations - Remote", "SentinelOne")
+        "https://www.linkedin.com/jobs/search/?keywords=Senior+Technical+Program+Manager+NVIDIA"
+    assert linkedin.core_title("Senior Technical Program Manager, Services Operations - Remote") == "Senior Technical Program Manager"
+    assert linkedin.core_title("AI Product Manager, Content Platform Operations & Publishing") == "AI Product Manager"
+    assert linkedin.core_title("Senior Customer Technical Program Manager - AI Datacenter") == "Senior Customer Technical Program Manager"
 
     class FakeClaude: pass
     import jobscout.llm as L
@@ -109,3 +111,35 @@ def test_linkedin_resolve_order():
         assert linkedin.resolve(FakeClaude(), "Senior TPM", "Acme", "", []) == ("https://linkedin.com/jobs/view/4000000002", "found")
     finally:
         L.find_linkedin_posting, linkedin.SEARCH_ENABLED = orig, orig_flag
+
+
+def test_company_posting_helpers(monkeypatch):
+    from jobscout import company_posting as cp
+    assert cp.is_company_url("https://jobs.nvidia.com/careers/job/1", "NVIDIA Corporation")
+    assert cp.is_company_url("https://nvidia.wd5.myworkdayjobs.com/en-US/NVIDIAExternalCareerSite/job/X", "NVIDIA")
+    assert cp.is_company_url("https://boards.greenhouse.io/acme/jobs/1", "Acme")
+    assert not cp.is_company_url("https://boards.greenhouse.io/other/jobs/1", "Acme")
+    assert not cp.is_company_url("https://www.tealhq.com/job/x", "UnitedHealth Group")
+    assert not cp.is_company_url("https://www.linkedin.com/jobs/view/1", "Acme")
+    assert cp._title_match("Sr. Technical Program Manager (Remote)", "Senior Technical Program Manager")
+
+    page = '<html><script type="application/ld+json">{"@context":"https://schema.org","@type":"JobPosting","title":"TPM","datePosted":"2026-10-27T08:00:00Z"}</script></html>'
+
+    class R:
+        status_code = 200
+        headers = {"content-type": "text/html"}
+        text = page
+    monkeypatch.setattr(cp._client, "get", lambda *a, **k: R())
+    assert cp.date_posted_from_page("https://acme.com/jobs/1").isoformat() == "2026-10-27"
+    url, opened = cp.resolve("Acme", ["TPM"], ["https://indeed.com/x", "https://acme.com/jobs/123456"], None, None)
+    assert url == "https://acme.com/jobs/123456" and opened == "2026-10-27 (company page)"
+
+
+def test_looks_like_posting():
+    from jobscout.company_posting import looks_like_posting as lp
+    t = ["Senior Technical Program Manager"]
+    assert not lp("https://www.sentinelone.com/jobs/", t)
+    assert not lp("https://careers.arrivia.com/travel-job-listings/?refresh=tY1cOTzFbn", t)
+    assert lp("https://jobs.nvidia.com/careers/job/893396034942", t)
+    assert lp("https://careers.unitedhealthgroup.com/job/18530540/senior-technical-project-manager-remote-remote/", t)
+    assert lp("https://acme.com/careers/senior-technical-program-manager", t)

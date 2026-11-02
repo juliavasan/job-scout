@@ -71,6 +71,8 @@ def fake_llm(monkeypatch):
         return ["Exclude sales-heavy roles"] if any("sales" in f["feedback"] for f in feedback) else []
     monkeypatch.setattr(L, "learn_exclusions", learn)
     monkeypatch.setattr(L, "find_linkedin_posting", lambda c, t, co, loc: "")
+    from jobscout import company_posting
+    monkeypatch.setattr(company_posting, "resolve", lambda co, titles, urls, d, c=None: ("not found", f"~{d.isoformat()} (job board)" if d else "unknown"))
     return calls
 
 

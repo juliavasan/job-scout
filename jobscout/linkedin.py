@@ -47,11 +47,19 @@ _NOISE = re.compile(r"(^|\s[-–|]\s*|\()\s*(remote|hybrid|on-?site|us|usa|unite
 _CO_SUFFIX = re.compile(r",?\s+(inc\.?|incorporated|corp\.?|corporation|llc|ltd\.?|co\.?|company|plc)$", re.I)
 
 
+def core_title(title: str) -> str:
+    """'Senior TPM, Services Operations - Remote' -> 'Senior TPM'. LinkedIn search needs every keyword to match,
+    so long titles with team names usually return no results."""
+    t = re.sub(r"\([^)]*\)", " ", title)
+    t = _NOISE.sub(" ", t).strip(" -–|")
+    t = re.split(r"\s*[,|–]\s*|\s+-\s+|\s+/\s+", t)[0]
+    return re.sub(r"\s+", " ", t).strip() or title.strip()
+
+
 def search_url(title: str, company: str) -> str:
-    """LinkedIn job search for this title at this company, limited to the past month."""
-    t = _NOISE.sub(" ", title).strip(" -–|")
+    """LinkedIn job search for the core title at this company."""
     c = _CO_SUFFIX.sub("", company.strip())
-    return f"https://www.linkedin.com/jobs/search/?keywords={quote_plus(f'{t} {c}'.strip())}&f_TPR=r2592000"
+    return f"https://www.linkedin.com/jobs/search/?keywords={quote_plus(f'{core_title(title)} {c}'.strip())}"
 
 
 def resolve(claude, title: str, company: str, location: str, known_urls: list[str]) -> tuple[str, str]:

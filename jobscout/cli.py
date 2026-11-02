@@ -234,6 +234,53 @@ def cmd_backfill_linkedin(args) -> int:
     return 0
 
 
+def cmd_backfill_company(args) -> int:
+    """Fill 'Company job URL' and 'Date opened' for existing rows. Touches only empty cells in those columns."""
+    from concurrent.futures import ThreadPoolExecutor
+    from datetime import date as _date
+
+    from . import company_posting
+    from .google_io import DriveProfileStore, setup_profile
+
+    drive, _ = _drive()
+    for name, folder_id in _profiles(drive, args.profile):
+        files, _ = setup_profile(drive, name, folder_id)
+        store = DriveProfileStore(drive, files)
+        rows = store.read_jobs()
+        placeholders = ("not found", "unknown")
+        todo = {i + 2: r for i, r in enumerate(rows)
+                if (r.get("Company job URL") or "").strip() in ("", *placeholders)
+                or (r.get("Date opened") or "").strip() in ("", "unknown") or (r.get("Date opened") or "").startswith("~")}
+        from .llm import Claude
+        claude = Claude()
+
+        def resolve(item):
+            rownum, r = item
+            try:
+                posted = _date.fromisoformat(r.get("Posted date", ""))
+            except ValueError:
+                posted = None
+            known = r.get("Company job URL", "")
+            urls = [known] if known.startswith("http") else [r.get("Job URL", "")]
+            return rownum, company_posting.resolve(r.get("Company", ""), [r.get("Job title", "")], urls, posted, claude)
+
+        with ThreadPoolExecutor(4) as pool:
+            results = dict(pool.map(resolve, todo.items()))
+        cur_dates = {i + 2: (r.get("Date opened") or "").strip() for i, r in enumerate(rows)}
+        n1 = store.fill_empty_cells("Company job URL", {r: u for r, (u, _) in results.items()}, replace=placeholders)
+        # only replace an approximate date (~) with an exact one
+        better = {r: d for r, (_, d) in results.items() if not d.startswith(("~", "unknown")) or not cur_dates.get(r)}
+        n2 = store.fill_empty_cells("Date opened", better, replace=("unknown",) + tuple(v for v in cur_dates.values() if v.startswith("~")))
+        found = sum(1 for u, _ in results.values() if u != "not found")
+        exact = sum(1 for _, d in results.values() if d and not d.startswith(("~", "unknown")))
+        print(f"{name if not IN_CI else 'profile'}: {len(todo)} rows checked | company URL found for {found} | "
+              f"exact opening date for {exact} | cells written: {n1} + {n2} | ~${claude.usage['cost_usd']:.2f}")
+        if n1 or n2:
+            store.append_run_log(run_log_row(datetime.now(timezone.utc), "backfill-company", usage=claude.usage,
+                                             note=f"company URL found for {found}/{len(todo)} rows"))
+    return 0
+
+
 def cmd_template(args) -> int:
     from .google_io import BRIEF_TEMPLATE
 
@@ -257,6 +304,10 @@ def main(argv: list[str] | None = None) -> int:
     b = sub.add_parser("backfill-linkedin", help="fill the LinkedIn URL column for existing rows (empty cells only)")
     b.add_argument("--profile", required=True, help="person's folder name, or 'all'")
     b.set_defaults(func=cmd_backfill_linkedin)
+
+    c = sub.add_parser("backfill-company", help="fill Company job URL + Date opened for existing rows (empty cells only)")
+    c.add_argument("--profile", required=True, help="person's folder name, or 'all'")
+    c.set_defaults(func=cmd_backfill_company)
 
     t = sub.add_parser("template", help="print the brief template to paste into a Brief doc")
     t.set_defaults(func=cmd_template)

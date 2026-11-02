@@ -32,6 +32,8 @@ JOBS_COLUMNS = [
     "My feedback",
     "Best resume",
     "LinkedIn URL",
+    "Company job URL",
+    "Date opened",
 ]
 
 STATUS_VALUES = ["New", "Interested", "Applied", "Not a fit"]

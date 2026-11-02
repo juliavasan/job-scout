@@ -38,7 +38,7 @@ Job Scout/                                             ┌───────�
 **Jobs tab columns:** Date added · Fit score (1–10) · Job title · Company · Why it fits · Concerns / red flags ·
 Location · Work mode · Employment type · Seniority · Salary range · Equity mentioned · Posted date ·
 Company type / industry · Company size · Funding stage / public · HQ · Company description · Job URL ·
-Company website · Source · **Status** (dropdown) · **My feedback** · **Best resume** · **LinkedIn URL**
+Company website · Source · **Status** (dropdown) · **My feedback** · **Best resume** · **LinkedIn URL** · **Company job URL** · **Date opened**
 
 Company facts come from a web search by Claude. Anything it can't confirm is written as `unknown`, never guessed.
 
@@ -164,13 +164,28 @@ Tips:
 
 Every row gets a LinkedIn link, without the agent ever logging in to or opening LinkedIn:
 1. **The exact posting** (`linkedin.com/jobs/view/<id>`) when Google Jobs returned a LinkedIn apply link for that employer.
-2. Otherwise **a LinkedIn job search** for that title at that company over the past month. Click it while you're logged in
+2. Otherwise **a LinkedIn job search** for the core title at that company (e.g. "AI Product Manager Netflix"; long
+   team names are dropped because LinkedIn needs every keyword to match). Click it while you're logged in
    and the posting is usually the first result.
 
 There's also an opt-in step, `JOBSCOUT_LINKEDIN_SEARCH=1`, which asks Claude to web-search linkedin.com for the exact posting
 (~5¢ per job). It's off by default because postings from the last few days are rarely in the web index yet.
 To fill the column for rows added before it existed: `python -m jobscout backfill-linkedin --profile <name>`. This writes
 only to empty cells in that column.
+
+## Company job URL and Date opened
+
+- **Company job URL** is the posting on the employer's own careers site or hiring system (Workday, Greenhouse, Lever, …),
+  so you can apply directly. It's taken from Google's apply links when one is on the company's domain. Otherwise the agent
+  looks it up on the company's public Greenhouse/Lever/Ashby board (free), and as a last resort uses a Claude web search
+  with job boards blocked (~3¢ per job). A link is only accepted if it's on the employer's domain or ATS **and** points
+  to a specific job (it has a job ID or the title in the URL), not a careers landing page. Otherwise it says `not found`.
+- **Date opened** is the exact date the company published the job: from the ATS (Greenhouse/Lever/Ashby), or from
+  the `datePosted` field careers pages embed for Google Jobs. When neither is available it shows
+  `~date (job board)`, based on the job board's "N days ago". Some career sites (e.g. Netflix, UnitedHealth) build the page
+  with JavaScript, so their exact date isn't readable and the approximate date is used.
+- For rows added before these columns existed: `python -m jobscout backfill-company --profile <name>`. This writes only
+  to these two columns, and only to empty cells or the agent's own placeholders.
 
 ## Resume library
 
