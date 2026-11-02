@@ -300,7 +300,14 @@ def check(url: str, titles: list[str]) -> str:
         return "blocked"
     if r.status_code != 200:
         return "bad"
-    return "ok" if _shows_job(r, url, titles) else "bad"
+    if _shows_job(r, url, titles):
+        return "ok"
+    final_path = urlsplit(str(r.url)).path
+    if _GENERIC_PATH.search(final_path) and not re.search(r"\d{4,}", str(r.url)):
+        return "bad"  # bounced to a search/landing page
+    if len(_page_text(r.text[:3_000_000])) < 3000:
+        return "blocked"  # JavaScript-only page: nothing to read, can't verify either way
+    return "bad"
 
 
 def _shows_job(r, url: str, titles: list[str]) -> bool:

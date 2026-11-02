@@ -128,3 +128,10 @@ def test_blocked_company_site_link_trusted_from_google(monkeypatch):
                                   ["https://www.metacareers.com/profile/job_details/1769900794137147/"], None)
     assert lk.company_url == "https://www.metacareers.com/profile/job_details/1769900794137147/"
     assert C.check("https://x.com/job/123456", ["TPM"]) == "blocked"
+
+
+def test_js_only_page_counts_as_unverifiable(monkeypatch):
+    class R:
+        status_code, url, text = 200, "https://www.metacareers.com/profile/job_details/1769900794137147/", "<html><div id=root></div></html>"
+    monkeypatch.setattr(C, "_get", lambda url, **kw: R())
+    assert C.check(R.url, ["Technical Program Manager"]) == "blocked"
