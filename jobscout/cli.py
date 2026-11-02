@@ -11,6 +11,9 @@ import argparse
 import logging
 import os
 import sys
+import time
+from datetime import datetime, timezone
+from pathlib import Path
 
 from .config import ConfigError, Profile, require_env, root_folder_id, service_account_info
 
@@ -38,6 +41,36 @@ def _profiles(drive, wanted: str) -> list[tuple[str, str]]:
     if not match:
         raise ConfigError(f"no folder named {wanted!r}. Found: {[n for n, _ in found]}")
     return match
+
+
+RUN_LOG = Path(os.environ.get("JOBSCOUT_RUN_LOG", "logs/runs.log"))
+RUN_LOG_HEADER = "# Job Scout run log (local only, gitignored). Times in UTC. One line per profile per run.\n"
+
+
+def write_run_log(line: str) -> None:
+    """Append one line to the local run log. Skipped in CI (the sheet's Log tab covers cloud runs)."""
+    if IN_CI:
+        return
+    RUN_LOG.parent.mkdir(parents=True, exist_ok=True)
+    new = not RUN_LOG.exists()
+    with RUN_LOG.open("a") as f:
+        if new:
+            f.write(RUN_LOG_HEADER)
+        f.write(line.rstrip() + "\n")
+
+
+def format_run_line(when: datetime, name: str, mode: str, rep=None, searches: int = 0, usage: dict | None = None,
+                    seconds: float = 0.0, failure: str = "") -> str:
+    head = f"{when:%Y-%m-%d %H:%M} UTC | {name} | {mode}"
+    if failure:
+        return f"{head} | FAILED: {failure}"
+    u = usage or {}
+    added = "would add" if mode == "dry-run" else "added"
+    return (f"{head} | found {rep.found} | {added} {rep.added} | dup {rep.skipped_dup} | excluded {rep.skipped_excluded}"
+            f" | over cap {rep.skipped_over_cap} | learned {len(rep.learned)} | errors {len(rep.errors)}"
+            f" | serpapi {searches} | claude {u.get('calls', 0)} calls, {u.get('input_tokens', 0)/1000:.1f}k in /"
+            f" {u.get('output_tokens', 0)/1000:.1f}k out, {u.get('web_searches', 0)} web searches, ~${u.get('cost_usd', 0):.2f}"
+            f" | {seconds:.0f}s")
 
 
 def _print_rows(name: str, rep) -> None:
@@ -105,6 +138,9 @@ def cmd_run(args) -> int:
         label = f"profile-{idx}" if IN_CI else name
         p = Profile.from_env(label, folder_id)
         store = None
+        started, t0 = datetime.now(timezone.utc), time.monotonic()
+        mode = "dry-run" if args.dry_run else "run"
+        claude, sources = None, []
         try:
             files, _ = setup_profile(drive, name, folder_id)
             store = DriveProfileStore(drive, files)
@@ -113,6 +149,7 @@ def cmd_run(args) -> int:
             rep = run_profile(p, store, claude, sources, dry_run=args.dry_run)
         except Exception as e:  # isolate profiles from each other
             failures += 1
+            write_run_log(format_run_line(started, name, mode, failure=f"{type(e).__name__}: {str(e)[:200]}"))
             logging.error("[%s] run failed: %s: %s", label, type(e).__name__, "" if IN_CI else str(e)[:300])
             if store is not None and not args.dry_run:
                 try:
@@ -120,6 +157,8 @@ def cmd_run(args) -> int:
                 except Exception:
                     pass
             continue
+        write_run_log(format_run_line(started, name, mode, rep, searches=sources[0].searches_used,
+                                      usage=claude.usage, seconds=time.monotonic() - t0))
         if args.dry_run:
             if IN_CI:
                 print(f"[{label}] dry run: would add {rep.added} (details hidden in CI logs)")

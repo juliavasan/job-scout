@@ -74,7 +74,7 @@ def fake_llm(monkeypatch):
 
 
 class DummyClaude:
-    usage = {"calls": 0, "input_tokens": 0, "output_tokens": 0}
+    usage = {"calls": 0, "input_tokens": 0, "output_tokens": 0, "web_searches": 0, "cost_usd": 0.0}
 
 
 P = Profile(name="t")
@@ -178,3 +178,13 @@ def test_docx_text():
     with zipfile.ZipFile(buf, "w") as z:
         z.writestr("word/document.xml", "<w:document><w:body><w:p><w:r><w:t>Jane &amp; Co</w:t></w:r></w:p><w:p><w:r><w:t>Python</w:t></w:r></w:p></w:body></w:document>")
     assert docx_text(buf.getvalue()) == "Jane & Co\nPython"
+
+
+def test_run_log_line():
+    from datetime import datetime
+    from jobscout.cli import format_run_line
+    rep = pipeline.RunReport(profile="JV", found=16, added=5, skipped_excluded=11)
+    line = format_run_line(datetime(2026, 11, 2, 21, 46), "JV", "run", rep, searches=5,
+                           usage={"calls": 22, "input_tokens": 47286, "output_tokens": 6987, "web_searches": 9, "cost_usd": 0.27}, seconds=81)
+    assert line == ("2026-11-02 21:46 UTC | JV | run | found 16 | added 5 | dup 0 | excluded 11 | over cap 0 | learned 0 | errors 0"
+                    " | serpapi 5 | claude 22 calls, 47.3k in / 7.0k out, 9 web searches, ~$0.27 | 81s")

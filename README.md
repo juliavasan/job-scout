@@ -232,6 +232,16 @@ To add a source, subclass `jobscout.sources.base.Source`, implement `fetch(plan,
 Optional limits (env vars / secrets): `JOBSCOUT_MAX_NEW_ROWS` (25), `JOBSCOUT_MAX_AGE_DAYS` (7), `JOBSCOUT_MIN_FIT_SCORE` (6),
 `JOBSCOUT_MAX_QUERIES` (4), `JOBSCOUT_PAGES_PER_QUERY` (1).
 
+## Run history
+
+- **Sheet → Log tab:** one row per run, for every run including the daily cloud ones. Shows found / added / skipped / errors.
+- **`logs/runs.log`** (local only, gitignored): one line per local run, with more detail: SerpApi searches used, Claude calls and tokens,
+  web searches, estimated cost, and duration. For example:
+  ```
+  2026-11-02 21:46 UTC | JV | run | found 16 | added 5 | dup 0 | excluded 11 | over cap 0 | learned 0 | errors 0 | serpapi 5 | claude 22 calls, 47.3k in / 7.0k out, 9 web searches, ~$0.27 | 81s
+  ```
+  The cost is an estimate from token counts and list prices. Change the location with `JOBSCOUT_RUN_LOG`.
+
 ## Development
 
 ```bash

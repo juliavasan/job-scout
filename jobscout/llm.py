@@ -111,10 +111,32 @@ def _extract_json(text: str) -> dict:
         return json.loads(m.group(0))
 
 
+# USD per million tokens: (input, output, cache read, cache write). Used only for the run log's cost estimate.
+PRICES = {
+    "claude-sonnet-5-5": (2.00, 10.00, 0.20, 2.50),
+    "claude-haiku-5-5": (0.10, 0.50, 0.01, 0.125),
+    "claude-opus-5-5": (4.00, 20.00, 0.20, 5.00),
+}
+WEB_SEARCH_USD = 10 / 1000
+
+
 class Claude:
     def __init__(self, client: anthropic.Anthropic | None = None):
         self.client = client or anthropic.Anthropic(max_retries=4)
-        self.usage = {"input_tokens": 0, "output_tokens": 0, "calls": 0}
+        self.usage = {"input_tokens": 0, "output_tokens": 0, "calls": 0, "web_searches": 0, "cost_usd": 0.0}
+
+    def _track(self, model: str, u) -> None:
+        inp, out = u.input_tokens or 0, u.output_tokens or 0
+        cr = getattr(u, "cache_read_input_tokens", 0) or 0
+        cw = getattr(u, "cache_creation_input_tokens", 0) or 0
+        stu = getattr(u, "server_tool_use", None)
+        ws = (getattr(stu, "web_search_requests", 0) or 0) if stu else 0
+        p_in, p_out, p_cr, p_cw = next((v for k, v in PRICES.items() if model.startswith(k)), PRICES["claude-sonnet-5-5"])
+        self.usage["calls"] += 1
+        self.usage["input_tokens"] += inp + cr + cw
+        self.usage["output_tokens"] += out
+        self.usage["web_searches"] += ws
+        self.usage["cost_usd"] += (inp * p_in + out * p_out + cr * p_cr + cw * p_cw) / 1e6 + ws * WEB_SEARCH_USD
 
     def _create(self, model: str, **kwargs):
         if model.startswith(_FALLBACK_MODELS):
@@ -142,9 +164,7 @@ class Claude:
             for _ in range(4):  # resume server-tool turns that pause
                 resp = self._create(model, max_tokens=max_tokens, system=system_blocks, messages=messages,
                                     output_config=output_config, **extra)
-                self.usage["calls"] += 1
-                self.usage["input_tokens"] += resp.usage.input_tokens or 0
-                self.usage["output_tokens"] += resp.usage.output_tokens or 0
+                self._track(model, resp.usage)
                 if resp.stop_reason != "pause_turn":
                     break
                 messages = [*messages, {"role": "assistant", "content": resp.content}]
