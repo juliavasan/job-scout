@@ -7,18 +7,23 @@ prefer the LinkedIn apply link as the row URL when one exists.
 from __future__ import annotations
 
 import logging
-from urllib.parse import urlsplit
+import re
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 import httpx
 
+from ..dedup import normalize_company
 from ..models import RawJob
 from .base import SearchPlan, Source, is_recent, parse_relative_date
 
 log = logging.getLogger(__name__)
 
 ENDPOINT = "https://serpapi.com/search.json"
-ATS_HOSTS = ("greenhouse.io", "lever.co", "ashbyhq.com", "workable.com", "smartrecruiters.com", "myworkdayjobs.com")
-AGGREGATOR_HOSTS = ("indeed.", "glassdoor.", "ziprecruiter.", "monster.", "simplyhired.", "talent.com", "builtin", "wellfound.", "dice.com", "jooble", "adzuna", "learn4good", "bebee", "jobright", "lensa")
+ATS_HOSTS = ("greenhouse.io", "lever.co", "ashbyhq.com", "workable.com", "smartrecruiters.com", "myworkdayjobs.com",
+             "icims.com", "jobvite.com", "bamboohr.com", "taleo.net", "successfactors", "oraclecloud.com", "eightfold.ai")
+# Well-known boards: acceptable when there's no LinkedIn/company link.
+KNOWN_BOARDS = ("indeed.", "glassdoor.", "ziprecruiter.", "builtin", "wellfound.", "dice.com", "monster.", "simplyhired.")
+_TRACKING = re.compile(r"^(utm_|trk|refid$|trackingid$|src$|source$|gh_src$|lever-source)", re.I)
 
 
 def _host(url: str) -> str:
@@ -28,22 +33,65 @@ def _host(url: str) -> str:
         return ""
 
 
-def pick_best_url(apply_options: list[dict], share_link: str) -> tuple[str, str]:
-    """Return (url, source_label). Preference: LinkedIn > ATS/company page > aggregator > Google share link."""
-    links = [(o.get("title") or "", o.get("link") or "") for o in apply_options if o.get("link")]
-    for title, link in links:
-        if "linkedin.com" in _host(link):
-            return link, "LinkedIn (via Google Jobs)"
-    for title, link in links:
-        if any(h in _host(link) for h in ATS_HOSTS):
-            return link, f"{title or _host(link)} (via Google Jobs)"
-    for title, link in links:
-        if not any(h in _host(link) for h in AGGREGATOR_HOSTS):
-            return link, f"{title or _host(link)} (via Google Jobs)"
-    if links:
-        title, link = links[0]
-        return link, f"{title or _host(link)} (via Google Jobs)"
-    return share_link, "Google Jobs"
+def clean_url(url: str) -> str:
+    """Drop tracking parameters (utm_*, trk, refId…) but keep ones that identify the job."""
+    try:
+        parts = urlsplit(url)
+    except ValueError:
+        return url
+    kept = [(k, v) for k, v in parse_qsl(parts.query, keep_blank_values=True) if not _TRACKING.match(k)]
+    return urlunsplit((parts.scheme, parts.netloc, parts.path, urlencode(kept), ""))
+
+
+_GENERIC = {"the", "and", "group", "systems", "system", "technologies", "technology", "tech", "labs", "global",
+            "international", "holdings", "services", "solutions", "software", "health", "inc", "usa", "america"}
+
+
+def _company_tokens(company: str) -> list[str]:
+    return [t for t in normalize_company(company).split() if len(t) >= 3 and t not in _GENERIC]
+
+
+def linkedin_matches_company(url: str, company: str) -> bool:
+    """Google Jobs sometimes attaches another employer's LinkedIn link. LinkedIn slugs look like
+    /jobs/view/<title>-at-<company>-<id>; if there is a slug, it must mention the company."""
+    m = re.search(r"/jobs/view/([^/?#]+)", url)
+    if not m or re.fullmatch(r"\d+", m.group(1)):
+        return True  # bare ID: nothing to check against
+    slug = m.group(1).lower()
+    at = slug.rsplit("-at-", 1)
+    company_part = at[1] if len(at) == 2 else slug
+    toks = _company_tokens(company)
+    return not toks or any(t in company_part.replace("-", "") or t in company_part for t in toks)
+
+
+def _is_company_site(url: str, company: str) -> bool:
+    host = _host(url).replace("-", "")
+    return any(t in host for t in _company_tokens(company) if len(t) >= 4)
+
+
+def pick_best_url(apply_options: list[dict], share_link: str, company: str = "") -> tuple[str, str, list[str]]:
+    """Return (url, source_label, other_valid_urls).
+    Preference: LinkedIn (verified) > company site / ATS > well-known board > anything else > Google share link."""
+    links = []
+    for o in apply_options:
+        link = o.get("link") or ""
+        if not link:
+            continue
+        if "linkedin.com" in _host(link) and company and not linkedin_matches_company(link, company):
+            continue  # wrong employer's posting attached by Google; ignore it entirely
+        links.append((o.get("title") or _host(link), clean_url(link)))
+    tiers = [
+        lambda l: "linkedin.com" in _host(l),
+        lambda l: _is_company_site(l, company) or any(h in _host(l) for h in ATS_HOSTS),
+        lambda l: any(h in _host(l) for h in KNOWN_BOARDS),
+        lambda l: True,
+    ]
+    for tier in tiers:
+        for title, link in links:
+            if tier(link):
+                label = "LinkedIn (via Google Jobs)" if "linkedin.com" in _host(link) else f"{title} (via Google Jobs)"
+                return link, label, [l for _, l in links if l != link]
+    return clean_url(share_link), "Google Jobs", []
 
 
 def _description(item: dict) -> str:
@@ -58,7 +106,7 @@ def _description(item: dict) -> str:
 def parse_result(item: dict) -> RawJob:
     ext = item.get("detected_extensions") or {}
     apply_options = item.get("apply_options") or []
-    url, source = pick_best_url(apply_options, item.get("share_link") or "")
+    url, source, others = pick_best_url(apply_options, item.get("share_link") or "", item.get("company_name") or "")
     posted = parse_relative_date(ext.get("posted_at") or "")
     if posted is None:
         for e in item.get("extensions") or []:
@@ -74,7 +122,7 @@ def parse_result(item: dict) -> RawJob:
         source=source,
         description=_description(item),
         posted_date=posted,
-        other_urls=[o.get("link") for o in apply_options if o.get("link") and o.get("link") != url],
+        other_urls=others,
         salary_hint=ext.get("salary") or "",
         work_mode_hint=work_mode,
         employment_type_hint=ext.get("schedule_type") or "",

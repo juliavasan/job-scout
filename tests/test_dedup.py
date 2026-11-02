@@ -37,10 +37,21 @@ def test_prefers_linkedin_apply_link():
     opts = [{"title": "Indeed", "link": "https://indeed.com/viewjob?jk=1"},
             {"title": "LinkedIn", "link": "https://www.linkedin.com/jobs/view/123456789"},
             {"title": "Greenhouse", "link": "https://boards.greenhouse.io/acme/jobs/9"}]
-    url, src = pick_best_url(opts, "https://google.com/share")
-    assert "linkedin.com" in url and src.startswith("LinkedIn")
-    url, _ = pick_best_url(opts[::2], "")
+    url, src, others = pick_best_url(opts, "https://google.com/share", "Acme")
+    assert "linkedin.com" in url and src.startswith("LinkedIn") and len(others) == 2
+    url, _, _ = pick_best_url(opts[::2], "", "Acme")
     assert "greenhouse" in url
+
+
+def test_rejects_other_employers_linkedin_link_and_strips_tracking():
+    opts = [{"title": "LinkedIn", "link": "https://www.linkedin.com/jobs/view/senior-substation-project-manager-at-wsp-in-the-u-s-4472815594?utm_campaign=x"},
+            {"title": "Trabajo", "link": "https://us.trabajo.org/job-1?utm_source=google_jobs_apply"},
+            {"title": "UHG Careers", "link": "https://careers.unitedhealthgroup.com/job/123?utm_medium=organic&id=9"}]
+    url, src, others = pick_best_url(opts, "", "UnitedHealth Group")
+    assert url == "https://careers.unitedhealthgroup.com/job/123?id=9"
+    assert not any("linkedin" in o for o in others)
+    ok = "https://www.linkedin.com/jobs/view/senior-tpm-at-unitedhealth-group-4471234567"
+    assert pick_best_url([{"title": "LinkedIn", "link": ok}], "", "UnitedHealth Group")[0] == ok
 
 
 def test_parse_serpapi_result():
