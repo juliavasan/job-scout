@@ -42,7 +42,11 @@ MIME_DOC = "application/vnd.google-apps.document"
 MIME_SHEET = "application/vnd.google-apps.spreadsheet"
 TEXT_MIMES = ("text/plain", "text/markdown", "text/x-markdown")
 
-BRIEF_TEMPLATE = """Target roles:
+BRIEF_TEMPLATE = """About me (paste your resume or a short summary — used to judge whether you're a strong candidate):
+- (e.g. 8 years as a software engineer, last 3 building LLM features at a Series C startup;
+  Python, TypeScript, AWS; led customer integrations for enterprise clients; based in Oakland, CA)
+
+Target roles:
 - (e.g. Forward Deployed Engineer, Solutions Engineer, Technical PM for AI products)
 
 Seniority: (e.g. Senior / Staff; no junior roles)
