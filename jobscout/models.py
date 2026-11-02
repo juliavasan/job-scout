@@ -48,6 +48,28 @@ LOG_COLUMNS = [
     "Errors",
 ]
 
+# Optional separate "Log" spreadsheet in the person's folder: one detailed row per run, incl. cost.
+RUNLOG_TAB = "Runs"
+RUNLOG_COLUMNS = [
+    "Run at (UTC)",
+    "Type",
+    "Where",
+    "Found",
+    "Added",
+    "Skipped: duplicate",
+    "Skipped: excluded / low score",
+    "Skipped: over cap",
+    "New learned exclusions",
+    "SerpApi searches",
+    "Claude calls",
+    "Input tokens",
+    "Output tokens",
+    "Claude web searches",
+    "Est. cost (USD)",
+    "Duration (s)",
+    "Errors / notes",
+]
+
 # Hidden bookkeeping tab: lets the agent remember what it already processed
 # without ever touching your rows.
 STATE_COLUMNS = ["Kind", "Key", "Date"]

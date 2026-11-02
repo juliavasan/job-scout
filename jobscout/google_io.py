@@ -28,7 +28,7 @@ from google.auth.transport.requests import AuthorizedSession
 from google.oauth2.service_account import Credentials
 
 from .models import (
-    JOBS_COLUMNS, LEARNED_HEADER, LOG_COLUMNS, STATE_COLUMNS, STATUS_VALUES,
+    JOBS_COLUMNS, LEARNED_HEADER, LOG_COLUMNS, RUNLOG_COLUMNS, RUNLOG_TAB, STATE_COLUMNS, STATUS_VALUES,
     TAB_JOBS, TAB_LOG, TAB_STATE,
 )
 
@@ -189,6 +189,7 @@ class ProfileFiles:
     brief: dict | None
     sheet: dict | None
     resumes_folder: dict | None = None
+    log_sheet: dict | None = None
 
 
 def _pick(files: list[dict], prefer: tuple[str, ...]) -> dict | None:
@@ -204,7 +205,9 @@ def _pick(files: list[dict], prefer: tuple[str, ...]) -> dict | None:
 def find_profile_files(drive: Drive, name: str, folder_id: str) -> ProfileFiles:
     kids = drive.children(folder_id)
     briefs = [f for f in kids if f["mimeType"] == MIME_DOC or f["mimeType"] in TEXT_MIMES or f["name"].lower().endswith((".txt", ".md"))]
-    sheets = [f for f in kids if f["mimeType"] == MIME_SHEET]
+    all_sheets = [f for f in kids if f["mimeType"] == MIME_SHEET]
+    log_sheet = next((f for f in all_sheets if re.search(r"\blogs?\b", f["name"], re.I)), None)
+    sheets = [f for f in all_sheets if f is not log_sheet]
     brief = _pick(briefs, ("brief", "search", "looking", "criteria", "what"))
     if briefs and brief is None:
         raise GoogleSetupError(f"folder {name!r} has several text files; name the one to use 'Brief'")
@@ -212,7 +215,7 @@ def find_profile_files(drive: Drive, name: str, folder_id: str) -> ProfileFiles:
     if sheets and sheet is None:
         raise GoogleSetupError(f"folder {name!r} has several sheets; put 'Jobs' in the name of the one to use")
     resumes = next((f for f in kids if f["mimeType"] == MIME_FOLDER and re.search(r"resume|résumé|\bcv", f["name"], re.I)), None)
-    return ProfileFiles(name=name, folder_id=folder_id, brief=brief, sheet=sheet, resumes_folder=resumes)
+    return ProfileFiles(name=name, folder_id=folder_id, brief=brief, sheet=sheet, resumes_folder=resumes, log_sheet=log_sheet)
 
 
 def discover_profiles(drive: Drive, root_folder_id: str) -> list[tuple[str, str]]:
@@ -312,7 +315,45 @@ def setup_profile(drive: Drive, name: str, folder_id: str) -> tuple[ProfileFiles
         missing.append("an empty Google Sheet named 'Jobs'")
     if missing:
         raise GoogleSetupError(f"folder {name!r} needs " + " and ".join(missing))
-    return pf, ensure_sheet_layout(drive.gc, pf.sheet["id"])
+    done = ensure_sheet_layout(drive.gc, pf.sheet["id"])
+    if pf.log_sheet:
+        done += ensure_runlog_layout(drive.gc, pf.log_sheet["id"])
+    return pf, done
+
+
+def ensure_runlog_layout(gc: gspread.Client, sheet_id: str) -> list[str]:
+    """Prepare the optional 'Log' spreadsheet: a 'Runs' tab with headers. Never overwrites content."""
+    sh = gc.open_by_key(sheet_id)
+    tabs = sh.worksheets()
+    done: list[str] = []
+    ws = next((w for w in tabs if w.title == RUNLOG_TAB), None)
+    if ws is None:
+        if len(tabs) == 1 and not any(any(r) for r in tabs[0].get_all_values()):
+            ws = tabs[0]
+            ws.update_title(RUNLOG_TAB)
+        else:
+            ws = sh.add_worksheet(title=RUNLOG_TAB, rows=1000, cols=len(RUNLOG_COLUMNS))
+        done.append(f"Log sheet: created '{RUNLOG_TAB}' tab")
+    first = ws.row_values(1)
+    if not any(first):
+        if ws.col_count < len(RUNLOG_COLUMNS):
+            ws.add_cols(len(RUNLOG_COLUMNS) - ws.col_count)
+        ws.update([RUNLOG_COLUMNS], "A1", value_input_option="RAW")
+        sh.batch_update({"requests": [
+            {"updateSheetProperties": {"properties": {"sheetId": ws.id, "gridProperties": {"frozenRowCount": 1}},
+                                       "fields": "gridProperties.frozenRowCount"}},
+            {"repeatCell": {"range": {"sheetId": ws.id, "startRowIndex": 0, "endRowIndex": 1},
+                            "cell": {"userEnteredFormat": {"textFormat": {"bold": True}}},
+                            "fields": "userEnteredFormat.textFormat.bold"}},
+        ]})
+        done.append("Log sheet: wrote header")
+    elif RUNLOG_COLUMNS[: len(first)] == first and len(first) < len(RUNLOG_COLUMNS):
+        missing = RUNLOG_COLUMNS[len(first):]
+        if ws.col_count < len(RUNLOG_COLUMNS):
+            ws.add_cols(len(RUNLOG_COLUMNS) - ws.col_count)
+        ws.update([missing], gspread.utils.rowcol_to_a1(1, len(first) + 1), value_input_option="RAW")
+        done.append(f"Log sheet: added columns {', '.join(missing)}")
+    return done
 
 
 # ---------- the store used by the pipeline ----------
@@ -377,6 +418,14 @@ class DriveProfileStore:
         if cells:
             ws.update_cells(cells, value_input_option="RAW")
         return len(cells)
+
+    def append_run_log(self, row: list) -> None:
+        """Detailed run row in the optional separate 'Log' spreadsheet (no-op if there isn't one)."""
+        if not self.files.log_sheet:
+            return
+        ws = self.drive.gc.open_by_key(self.files.log_sheet["id"]).worksheet(RUNLOG_TAB)
+        # USER_ENTERED so numbers/cost are real numbers you can sum; values are all ours (no posting text).
+        ws.append_row(row, value_input_option="USER_ENTERED", table_range="A1")
 
     def append_log(self, row: list) -> None:
         self._ws(TAB_LOG).append_row([str(c) for c in row], value_input_option="RAW", table_range="A1")

@@ -198,3 +198,15 @@ def test_linkedin_column_filled(fake_llm):
     li = {r[JOBS_COLUMNS.index("Company")]: r[JOBS_COLUMNS.index("LinkedIn URL")] for r in store.jobs[1:]}
     assert li["Acme"] == "https://linkedin.com/jobs/view/4012345678"
     assert li["Beta"].startswith("https://www.linkedin.com/jobs/search/?keywords=")
+
+
+def test_run_log_row_shape():
+    from datetime import datetime
+    from jobscout.cli import run_log_row
+    from jobscout.models import RUNLOG_COLUMNS
+    rep = pipeline.RunReport(profile="JV", found=16, added=5, skipped_excluded=11)
+    row = run_log_row(datetime(2026, 11, 2, 21, 46), "run", rep, 5,
+                      {"calls": 22, "input_tokens": 47286, "output_tokens": 6987, "web_searches": 9, "cost_usd": 0.2712}, 81.4)
+    assert len(row) == len(RUNLOG_COLUMNS)
+    d = dict(zip(RUNLOG_COLUMNS, row))
+    assert d["Est. cost (USD)"] == 0.27 and d["Added"] == 5 and d["Duration (s)"] == 81 and d["Type"] == "run"

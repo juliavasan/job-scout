@@ -32,6 +32,7 @@ Job Scout/                                             ┌───────�
 |---|---|
 | **Brief** (Google Doc, or a `.txt`) | Your search brief in plain language. Edit it any time, including from your phone. Learned exclusions are added at the bottom. |
 | **Resumes** (subfolder, optional) | Your resume library: the resumes you've already sent out (Google Docs, PDF, Word .docx, .txt). Claude searches for roles similar to the ones they're tailored to, judges each job against the closest one, and names it in the **Best resume** column. Up to 8 most recently modified files are used. |
+| **Log** (Google Sheet, optional) | Run history with cost per run. You create it empty; the agent adds a **Runs** tab. |
 | **Jobs** (Google Sheet) | You create it empty. The agent adds three tabs: **Jobs** (results), **Log** (one row per run) and a hidden **_state** tab (bookkeeping). |
 
 **Jobs tab columns:** Date added · Fit score (1–10) · Job title · Company · Why it fits · Concerns / red flags ·
@@ -246,7 +247,12 @@ Optional limits (env vars / secrets): `JOBSCOUT_MAX_NEW_ROWS` (25), `JOBSCOUT_MA
 
 ## Run history
 
-- **Sheet → Log tab:** one row per run, for every run including the daily cloud ones. Shows found / added / skipped / errors.
+- **`Log` spreadsheet (optional, recommended):** put a Google Sheet named `Log` in a person's folder and `setup` adds a
+  **Runs** tab. Every real run, local or cloud, appends one detailed row: type, where it ran, found / added / skipped,
+  SerpApi searches, Claude calls and tokens, Claude web searches, **estimated cost (USD)**, duration and errors.
+  The cost is computed from token counts and list prices (Sonnet $2/$10 per M tokens, cache reads $0.20, web search $0.01);
+  SerpApi's free plan costs $0. Dry runs aren't written here.
+- **Jobs sheet → Log tab:** a short row per run (found / added / skipped / errors).
 - **`logs/runs.log`** (local only, gitignored): one line per local run, with more detail: SerpApi searches used, Claude calls and tokens,
   web searches, estimated cost, and duration. For example:
   ```

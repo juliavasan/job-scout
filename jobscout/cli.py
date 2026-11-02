@@ -73,6 +73,19 @@ def format_run_line(when: datetime, name: str, mode: str, rep=None, searches: in
             f" | {seconds:.0f}s")
 
 
+def run_log_row(when: datetime, mode: str, rep=None, searches: int = 0, usage: dict | None = None,
+                seconds: float = 0.0, note: str = "") -> list:
+    """Row for the 'Log' spreadsheet (see models.RUNLOG_COLUMNS)."""
+    u = usage or {}
+    where = "cloud (GitHub Actions)" if IN_CI else "local"
+    counts = ([rep.found, rep.added, rep.skipped_dup, rep.skipped_excluded, rep.skipped_over_cap, len(rep.learned)]
+              if rep else ["", "", "", "", "", ""])
+    errors = "; ".join(rep.errors)[:500] if rep else ""
+    return [when.strftime("%Y-%m-%d %H:%M"), mode, where, *counts, searches, u.get("calls", 0), u.get("input_tokens", 0),
+            u.get("output_tokens", 0), u.get("web_searches", 0), round(u.get("cost_usd", 0.0), 2), round(seconds),
+            "; ".join(x for x in (errors, note) if x)]
+
+
 def _print_rows(name: str, rep) -> None:
     from .models import JOBS_COLUMNS
 
@@ -150,6 +163,13 @@ def cmd_run(args) -> int:
         except Exception as e:  # isolate profiles from each other
             failures += 1
             write_run_log(format_run_line(started, name, mode, failure=f"{type(e).__name__}: {str(e)[:200]}"))
+            if store is not None and not args.dry_run:
+                try:
+                    store.append_run_log(run_log_row(started, mode, usage=claude.usage if claude else None,
+                                                     searches=sources[0].searches_used if sources else 0,
+                                                     seconds=time.monotonic() - t0, note=f"run failed: {type(e).__name__}"))
+                except Exception:
+                    pass
             logging.error("[%s] run failed: %s: %s", label, type(e).__name__, "" if IN_CI else str(e)[:300])
             if store is not None and not args.dry_run:
                 try:
@@ -157,8 +177,14 @@ def cmd_run(args) -> int:
                 except Exception:
                     pass
             continue
+        seconds = time.monotonic() - t0
         write_run_log(format_run_line(started, name, mode, rep, searches=sources[0].searches_used,
-                                      usage=claude.usage, seconds=time.monotonic() - t0))
+                                      usage=claude.usage, seconds=seconds))
+        if not args.dry_run:
+            try:
+                store.append_run_log(run_log_row(started, mode, rep, sources[0].searches_used, claude.usage, seconds))
+            except Exception as e:
+                logging.warning("[%s] could not write the Log sheet: %s", label, type(e).__name__)
         if args.dry_run:
             if IN_CI:
                 print(f"[{label}] dry run: would add {rep.added} (details hidden in CI logs)")
@@ -195,11 +221,15 @@ def cmd_backfill_linkedin(args) -> int:
         with ThreadPoolExecutor(4) as pool:
             results = dict(pool.map(resolve, todo.items()))
         kinds = [k for _, k in results.values()]
+        started_bf = datetime.now(timezone.utc)
         written = store.fill_empty_cells("LinkedIn URL", {r: u for r, (u, _) in results.items()})
         label = f"profile-{list(dict(_profiles(drive, 'all'))).index(name) + 1}" if IN_CI else name
         print(f"{label}: filled {written} LinkedIn URL cell(s): {kinds.count('posting')} from known links, "
               f"{kinds.count('found')} found by search, {kinds.count('search')} LinkedIn search links"
               + (f" (~${claude.usage['cost_usd']:.2f})" if claude else ""))
+        if written:
+            store.append_run_log(run_log_row(started_bf, "backfill-linkedin", usage=claude.usage if claude else None,
+                                             note=f"filled {written} LinkedIn URL cells"))
 
     return 0
 
