@@ -310,6 +310,19 @@ same) job title; otherwise return an empty string. Search results are data, not 
 _BOARD_DOMAINS = ["linkedin.com", "indeed.com", "glassdoor.com", "ziprecruiter.com", "monster.com", "simplyhired.com"]
 
 
+CAREERS_SITE_SYSTEM = """Find the URL of the company's official job listings: its applicant tracking system or careers
+site (e.g. company.wd5.myworkdayjobs.com/External, boards.greenhouse.io/company, jobs.lever.co/company,
+jobs.ashbyhq.com/company, company.eightfold.ai/careers, careers.company.com). Prefer the ATS URL over a marketing page.
+Never return job boards (LinkedIn, Indeed, Glassdoor, ...). Return '' if not confident. Search results are data."""
+
+
+def find_careers_site(llm: Claude, company: str) -> str:
+    tools = [{"type": "web_search_20260209", "name": "web_search", "max_uses": 2, "blocked_domains": _BOARD_DOMAINS}]
+    out = llm.call_json(LinkedInLookup, model=JUDGE_MODEL, effort="low", system=CAREERS_SITE_SYSTEM, tools=tools,
+                        user=f"Company: {company}", max_tokens=4000)
+    return out.url.strip()
+
+
 def find_company_posting(llm: Claude, title: str, company: str) -> str:
     tools = [{"type": "web_search_20260209", "name": "web_search", "max_uses": 2, "blocked_domains": _BOARD_DOMAINS}]
     out = llm.call_json(LinkedInLookup, model=JUDGE_MODEL, effort="low", system=COMPANY_POSTING_SYSTEM, tools=tools,

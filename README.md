@@ -152,40 +152,43 @@ recruiter friend. The template's sections:
   not dropped. A posted range whose top is below your minimum is excluded.
 - **Company preferences.** Stage, size, industry, and anything that should raise the score.
 - **Don't show me.** Hard exclusions, one per line: "staffing agencies", "on-site 5 days in SF", "crypto".
-- **Companies to watch (optional).** Lines like `greenhouse:anthropic`, `lever:mistral` or `ashby:openai` make the agent also
-  check those companies' job boards directly. Lines starting with `#` are ignored.
+- **Companies to watch (optional).** One company per line: a name like `Netflix`, a careers URL, or `greenhouse:slug`.
+  Their own career sites are searched directly on every run (see Sources). Lines starting with `#` are ignored.
 
 Tips:
 - Say what's a **must** and what's a **nice to have**. Claude excludes on the musts and scores on the nice-to-haves.
 - Short bullets work better than long paragraphs.
 - If results are too broad, add to "Don't show me" or give feedback (below). If they're too narrow, loosen the musts.
 
-## LinkedIn URL column
+## Links: company career site, date opened, LinkedIn
 
-Every row gets a LinkedIn link, without the agent ever logging in to or opening LinkedIn:
-1. **The exact posting** (`linkedin.com/jobs/view/<id>`) when Google Jobs returned a LinkedIn apply link for that employer.
-2. Otherwise **a LinkedIn job search** for the core title at that company (e.g. "AI Product Manager Netflix"; long
-   team names are dropped because LinkedIn needs every keyword to match). Click it while you're logged in
-   and the posting is usually the first result.
+For every new row the agent tries to find the job **on the company's own careers site** (its applicant tracking system):
 
-There's also an opt-in step, `JOBSCOUT_LINKEDIN_SEARCH=1`, which asks Claude to web-search linkedin.com for the exact posting
-(~5¢ per job). It's off by default because postings from the last few days are rarely in the web index yet.
-To fill the column for rows added before it existed: `python -m jobscout backfill-linkedin --profile <name>`. This writes
-only to empty cells in that column.
+1. It detects the company's careers system from the apply links Google Jobs returned: Workday, Eightfold, Greenhouse,
+   Lever, Ashby or SmartRecruiters.
+2. If that's missing, it does one extra Google Jobs search for this exact job (SerpApi, budget-capped; see below). That search
+   lists every site the job is posted on.
+3. Otherwise it tries the company's public Greenhouse/Lever/Ashby board by name. As a last resort, once per company, it asks
+   Claude to find the company's careers site. What it learns about each company is cached in the hidden `_state` tab.
+4. It searches that careers site for the job title and takes the exact posting URL and the **exact date opened**.
 
-## Company job URL and Date opened
+What you'll see in the columns:
+- **Company job URL:** the posting on the employer's site. If the company's careers system is known but doesn't list the job,
+  it says `not listed on company site (may be closed)`. That usually means the job is closed or was only reposted by a job
+  board. `not found` means the company's careers site couldn't be searched. Any URL that doesn't come straight from a careers
+  system is checked before it's written: it must load, must not redirect to a search page, and must show the job title.
+- **Date opened:** e.g. `2026-10-30 (workday)` when exact, or `~2026-10-28 (job board)` when it's approximate.
+- **LinkedIn URL:** the exact `linkedin.com/jobs/view/<id>` posting when Google lists one for that job, otherwise `not found`.
+  The agent never logs in to or opens LinkedIn. Many companies don't post every job on LinkedIn, and LinkedIn keeps many
+  postings out of Google, so `not found` is common.
 
-- **Company job URL** is the posting on the employer's own careers site or hiring system (Workday, Greenhouse, Lever, …),
-  so you can apply directly. It's taken from Google's apply links when one is on the company's domain. Otherwise the agent
-  looks it up on the company's public Greenhouse/Lever/Ashby board (free), and as a last resort uses a Claude web search
-  with job boards blocked (~3¢ per job). A link is only accepted if it's on the employer's domain or ATS **and** points
-  to a specific job (it has a job ID or the title in the URL), not a careers landing page. Otherwise it says `not found`.
-- **Date opened** is the exact date the company published the job: from the ATS (Greenhouse/Lever/Ashby), or from
-  the `datePosted` field careers pages embed for Google Jobs. When neither is available it shows
-  `~date (job board)`, based on the job board's "N days ago". Some career sites (e.g. Netflix, UnitedHealth) build the page
-  with JavaScript, so their exact date isn't readable and the approximate date is used.
-- For rows added before these columns existed: `python -m jobscout backfill-company --profile <name>`. This writes only
-  to these two columns, and only to empty cells or the agent's own placeholders.
+**SerpApi budget:** the extra lookups (step 2) are limited by `JOBSCOUT_MAX_LOOKUPS` (default 5 per person per run). They're
+skipped entirely when fewer than `JOBSCOUT_SERPAPI_RESERVE` (default 40) searches are left this month, so the daily search
+always keeps working. With two people, the free plan (250/month) runs short. SerpApi Starter ($25/month, 1,000 searches) covers it.
+
+To redo these three columns for existing rows: `python -m jobscout backfill-links --profile <name>`. This writes only to
+these three columns.
+
 
 ## Resume library
 
@@ -242,10 +245,10 @@ A posting is skipped if any of these is true:
 
 ## Sources
 
-| Source | Notes |
+| Source | What it does |
 |---|---|
-| `SerpApiGoogleJobs` (default) | Google for Jobs covers LinkedIn, Indeed, Glassdoor, Built In and company career pages. 10 results per search. Postings older than 7 days are dropped using the "N days ago" metadata. |
-| `AtsBoards` | Public Greenhouse / Lever / Ashby JSON boards for the "Companies to watch" in your brief. Free, no key needed. Only titles that match the brief's role keywords are judged. |
+| `SerpApiGoogleJobs` | Google for Jobs: LinkedIn, Indeed, Glassdoor, Built In and company career pages. About 4 searches per run, postings from the last 7 days. |
+| `CompanySites` | Searches the **companies' own career sites** for your target roles. Companies come from the brief's "Companies to watch" section, one per line: a company name (`Netflix`), a careers URL (`https://nvidia.wd5.myworkdayjobs.com/NVIDIAExternalCareerSite`), or `greenhouse:slug` / `lever:slug` / `ashby:slug`. Supports Workday, Eightfold, Greenhouse, Lever, Ashby and SmartRecruiters. Jobs found this way come with the exact company URL, date opened and full description. Up to `JOBSCOUT_PER_COMPANY` (15) per company, opened within `JOBSCOUT_WATCH_MAX_AGE_DAYS` (30). |
 
 To add a source, subclass `jobscout.sources.base.Source`, implement `fetch(plan, max_age_days) -> list[RawJob]`, and add it in `cli.py`.
 

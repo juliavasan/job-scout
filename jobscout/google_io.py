@@ -72,10 +72,10 @@ Don't show me:
 - Roles requiring on-site 5 days a week in SF
 - Crypto / web3
 
-Companies to watch (optional, one per line — checks their job boards directly):
+Companies to watch (optional, one per line — their own career sites are searched directly):
+# Netflix
+# https://nvidia.wd5.myworkdayjobs.com/NVIDIAExternalCareerSite
 # greenhouse:anthropic
-# lever:mistral
-# ashby:openai
 
 """
 
@@ -436,7 +436,7 @@ class DriveProfileStore:
 
     def read_state(self) -> list[dict]:
         values = self._ws(TAB_STATE).get_all_values()
-        return [dict(zip(STATE_COLUMNS, r)) for r in values[1:]] if values else []
+        return [dict(zip(STATE_COLUMNS, r + [""] * (len(STATE_COLUMNS) - len(r)))) for r in values[1:]] if values else []
 
     def append_state(self, rows: list[list[str]]) -> None:
         if rows:

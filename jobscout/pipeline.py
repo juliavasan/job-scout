@@ -8,12 +8,13 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 
-from . import company_posting, linkedin
+from . import linkedin
+from .careers import NOT_FOUND, LinkResolver
 from . import llm as L
 from .config import ConfigError, Profile
 from .dedup import canonical_url, company_title_key, job_key, normalize_company
 from .models import (
-    LEARNED_HEADER, NOT_A_FIT, STATE_FEEDBACK, STATE_REJECTED, RawJob,
+    LEARNED_HEADER, NOT_A_FIT, STATE_ATS, STATE_FEEDBACK, STATE_REJECTED, RawJob,
 )
 from .sources import SearchPlan, Source, parse_watchlist
 
@@ -79,6 +80,7 @@ def run_profile(
     claude: L.Claude,
     sources: list[Source],
     dry_run: bool = False,
+    resolver: LinkResolver | None = None,
 ) -> RunReport:
     rep = RunReport(profile=profile.name)
     day = datetime.now(LOCAL_TZ).date().isoformat()
@@ -116,7 +118,7 @@ def run_profile(
                 if not dry_run:
                     store.append_to_brief(addition)  # append-only: your text and formatting stay untouched
                 brief = fresh + addition
-            state_rows += [[STATE_FEEDBACK, k, day] for k in pending_keys]
+            state_rows += [[STATE_FEEDBACK, k, day, ""] for k in pending_keys]
         except L.LLMError as e:
             rep.errors.append(f"learn: {e}")
     log.info("[%s] feedback rows: %d new, learned %d exclusions", profile.name, len(pending), len(rep.learned))
@@ -127,7 +129,7 @@ def run_profile(
     except L.LLMError as e:
         rep.errors.append(f"plan: {e}")
         plan = SearchPlan(queries=[])
-    plan.ats_boards = parse_watchlist(brief)  # optional `greenhouse:acme` lines in the brief
+    plan.ats_boards = parse_watchlist(brief)  # "Companies to watch" section of the brief
     raw: list[RawJob] = []
     for src in sources:
         try:
@@ -178,7 +180,7 @@ def run_profile(
             else:
                 rep.skipped_excluded += 1
                 rep.excluded_samples.append((job.title, job.company, j.exclusion_reason or f"score {j.fit_score}"))
-                state_rows.append([STATE_REJECTED, canonical_url(job.url) or job_key(job.company, job.title, job.location), day])
+                state_rows.append([STATE_REJECTED, canonical_url(job.url) or job_key(job.company, job.title, job.location), day, ""])
     accepted.sort(key=lambda t: -t[1].fit_score)
     if len(accepted) > profile.max_new_rows:
         rep.skipped_over_cap += len(accepted) - profile.max_new_rows
@@ -215,25 +217,33 @@ def run_profile(
             if err:
                 rep.errors.append(f"company: {err}")
 
-    # 6) LinkedIn URL per accepted job (existing link, else search, else LinkedIn search link)
-    def _li(item):
-        job, j = item
-        return linkedin.resolve(claude, j.job_title or job.title, job.company, job.location, job.all_urls())[0]
+    # 6) Links: the posting on the company's own careers site, the exact LinkedIn posting, date opened
+    if resolver is not None:
+        resolver.cache.update({st["Key"]: st.get("Value", "") for st in state if st.get("Kind") == STATE_ATS and st.get("Value")})
 
-    def _company(item):
+    def _links(item):
         job, j = item
+        f = known.get(normalize_company(job.company), UNKNOWN_FACTS)
+        if "careers site" in job.source:  # found directly on the company's site: URL and date are exact already
+            when = f"{job.posted_date.isoformat()} ({job.source.split('(')[-1].rstrip(')')})" if job.posted_date else "unknown"
+            return NOT_FOUND, job.url, when
         try:
-            return company_posting.resolve(job.company, [job.title, j.job_title], job.all_urls(), job.posted_date, claude)
+            if resolver is not None:
+                lk = resolver.resolve(job.title, job.company, job.location, job.all_urls(), job.posted_date,
+                                      company_website=job.company_website or f.website, alt_titles=[j.job_title])
+                return lk.linkedin_url, lk.company_url, lk.date_opened
         except Exception as e:
-            log.debug("company posting lookup failed: %s", type(e).__name__)
-            return "not found", (f"~{job.posted_date.isoformat()} (job board)" if job.posted_date else "unknown")
+            log.debug("link lookup failed: %s", type(e).__name__)
+        li = linkedin.posting_from_urls(job.all_urls(), job.company) or NOT_FOUND
+        return li, NOT_FOUND, (f"~{job.posted_date.isoformat()} (job board)" if job.posted_date else "unknown")
 
-    with ThreadPoolExecutor(WORKERS) as pool:
-        li_urls = list(pool.map(_li, accepted))
-        company_info = list(pool.map(_company, accepted))
+    with ThreadPoolExecutor(2) as pool:  # gentle on company career sites
+        link_info = list(pool.map(_links, accepted))
+    if resolver is not None:
+        state_rows += [[STATE_ATS, k, day, v] for k, v in resolver.new_cache.items()]
 
     # 7) Build + append rows
-    for (job, j), li_url, (co_url, opened) in zip(accepted, li_urls, company_info):
+    for (job, j), (li_url, co_url, opened) in zip(accepted, link_info):
         f = known.get(normalize_company(job.company), UNKNOWN_FACTS)
         rep.rows.append([
             day, str(j.fit_score), j.job_title or job.title, job.company, j.why_it_fits, j.concerns,

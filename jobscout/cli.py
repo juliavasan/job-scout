@@ -99,6 +99,7 @@ def _print_rows(name: str, rep) -> None:
         print(f"  why: {d['Why it fits']}")
         print(f"  concerns: {d['Concerns / red flags']}")
         print(f"  {d['Job URL']}  [{d['Source']}]")
+        print(f"  company site: {d['Company job URL']} | opened: {d['Date opened']} | LinkedIn: {d['LinkedIn URL']}")
     if rep.excluded_samples:
         print(f"\n--- excluded ({len(rep.excluded_samples)}) ---")
         for t, c, why in rep.excluded_samples:
@@ -140,7 +141,7 @@ def cmd_run(args) -> int:
     from .google_io import DriveProfileStore, setup_profile
     from .llm import Claude
     from .pipeline import run_profile
-    from .sources import AtsBoards, SerpApiGoogleJobs
+    from .sources import CompanySites, SerpApiGoogleJobs
 
     serp_key = require_env("SERPAPI_API_KEY")
     require_env("ANTHROPIC_API_KEY")
@@ -158,8 +159,11 @@ def cmd_run(args) -> int:
             files, _ = setup_profile(drive, name, folder_id)
             store = DriveProfileStore(drive, files)
             claude = Claude()
-            sources = [SerpApiGoogleJobs(serp_key, p.max_queries, p.pages_per_query), AtsBoards()]
-            rep = run_profile(p, store, claude, sources, dry_run=args.dry_run)
+            resolver = make_resolver(serp_key, claude)
+            resolver.cache.update({st["Key"]: st.get("Value", "") for st in store.read_state()
+                                   if st.get("Kind") == "ats" and st.get("Value")})
+            sources = [SerpApiGoogleJobs(serp_key, p.max_queries, p.pages_per_query), CompanySites(resolver)]
+            rep = run_profile(p, store, claude, sources, dry_run=args.dry_run, resolver=resolver)
         except Exception as e:  # isolate profiles from each other
             failures += 1
             write_run_log(format_run_line(started, name, mode, failure=f"{type(e).__name__}: {str(e)[:200]}"))
@@ -178,11 +182,12 @@ def cmd_run(args) -> int:
                     pass
             continue
         seconds = time.monotonic() - t0
-        write_run_log(format_run_line(started, name, mode, rep, searches=sources[0].searches_used,
+        write_run_log(format_run_line(started, name, mode, rep, searches=sources[0].searches_used + resolver.serp.searches_used,
                                       usage=claude.usage, seconds=seconds))
         if not args.dry_run:
             try:
-                store.append_run_log(run_log_row(started, mode, rep, sources[0].searches_used, claude.usage, seconds))
+                store.append_run_log(run_log_row(started, mode, rep, sources[0].searches_used + resolver.serp.searches_used,
+                                                 claude.usage, seconds))
             except Exception as e:
                 logging.warning("[%s] could not write the Log sheet: %s", label, type(e).__name__)
         if args.dry_run:
@@ -198,86 +203,85 @@ def cmd_run(args) -> int:
     return 1 if failures else 0
 
 
-def cmd_backfill_linkedin(args) -> int:
-    """Fill the (new) LinkedIn URL column for existing rows. Touches only empty cells in that column."""
-    from concurrent.futures import ThreadPoolExecutor
-
-    from . import linkedin
-    from .google_io import DriveProfileStore, setup_profile
-    from .llm import Claude
-
-    drive, _ = _drive()
-    for name, folder_id in _profiles(drive, args.profile):
-        files, _ = setup_profile(drive, name, folder_id)  # adds the column header if missing
-        store = DriveProfileStore(drive, files)
-        rows = store.read_jobs()
-        todo = {i + 2: r for i, r in enumerate(rows) if not (r.get("LinkedIn URL") or "").strip()}
-        claude = Claude() if linkedin.SEARCH_ENABLED else None
-
-        def resolve(item):
-            rownum, r = item
-            return rownum, linkedin.resolve(claude, r.get("Job title", ""), r.get("Company", ""), r.get("Location", ""), [r.get("Job URL", "")])
-
-        with ThreadPoolExecutor(4) as pool:
-            results = dict(pool.map(resolve, todo.items()))
-        kinds = [k for _, k in results.values()]
-        started_bf = datetime.now(timezone.utc)
-        written = store.fill_empty_cells("LinkedIn URL", {r: u for r, (u, _) in results.items()})
-        label = f"profile-{list(dict(_profiles(drive, 'all'))).index(name) + 1}" if IN_CI else name
-        print(f"{label}: filled {written} LinkedIn URL cell(s): {kinds.count('posting')} from known links, "
-              f"{kinds.count('found')} found by search, {kinds.count('search')} LinkedIn search links"
-              + (f" (~${claude.usage['cost_usd']:.2f})" if claude else ""))
-        if written:
-            store.append_run_log(run_log_row(started_bf, "backfill-linkedin", usage=claude.usage if claude else None,
-                                             note=f"filled {written} LinkedIn URL cells"))
-
-    return 0
+def _lookup_budget(serp_key: str, wanted: int) -> int:
+    """Extra SerpApi lookups allowed this run; keeps a reserve so the daily searches never run out."""
+    try:
+        import httpx
+        acct = httpx.get("https://serpapi.com/account.json", params={"api_key": serp_key}, timeout=15).json()
+        left = acct.get("total_searches_left", acct.get("plan_searches_left"))
+        if isinstance(left, int):
+            reserve = _int("JOBSCOUT_SERPAPI_RESERVE", 40)
+            return max(0, min(wanted, left - reserve))
+    except Exception:
+        pass
+    return wanted
 
 
-def cmd_backfill_company(args) -> int:
-    """Fill 'Company job URL' and 'Date opened' for existing rows. Touches only empty cells in those columns."""
-    from concurrent.futures import ThreadPoolExecutor
+def _int(name: str, default: int) -> int:
+    try:
+        return int(os.environ.get(name, "") or default)
+    except ValueError:
+        return default
+
+
+def make_resolver(serp_key: str, claude):
+    from .careers import LinkResolver
+    from .sources import SerpApiGoogleJobs
+
+    serp = SerpApiGoogleJobs(serp_key, max_queries=0)
+    return LinkResolver(serp=serp, claude=claude, max_lookups=_lookup_budget(serp_key, _int("JOBSCOUT_MAX_LOOKUPS", 5)))
+
+
+def cmd_backfill_links(args) -> int:
+    """Re-find Company job URL, Date opened and LinkedIn URL for existing rows.
+    Only these three agent-owned columns are written; everything else in your rows stays untouched."""
     from datetime import date as _date
 
-    from . import company_posting
-    from .google_io import DriveProfileStore, setup_profile
+    import gspread
 
+    from .careers import NOT_FOUND
+    from .google_io import DriveProfileStore, setup_profile
+    from .llm import Claude
+    from .models import STATE_ATS
+
+    serp_key = require_env("SERPAPI_API_KEY")
     drive, _ = _drive()
     for name, folder_id in _profiles(drive, args.profile):
+        started, t0 = datetime.now(timezone.utc), time.monotonic()
         files, _ = setup_profile(drive, name, folder_id)
         store = DriveProfileStore(drive, files)
-        rows = store.read_jobs()
-        placeholders = ("not found", "unknown")
-        todo = {i + 2: r for i, r in enumerate(rows)
-                if (r.get("Company job URL") or "").strip() in ("", *placeholders)
-                or (r.get("Date opened") or "").strip() in ("", "unknown") or (r.get("Date opened") or "").startswith("~")}
-        from .llm import Claude
         claude = Claude()
-
-        def resolve(item):
-            rownum, r = item
+        resolver = make_resolver(serp_key, claude)
+        resolver.cache.update({st["Key"]: st.get("Value", "") for st in store.read_state() if st.get("Kind") == STATE_ATS and st.get("Value")})
+        rows = store.read_jobs()
+        ws = store._ws("Jobs")
+        header = ws.row_values(1)
+        cells, summary = [], {"company": 0, "closed": 0, "linkedin": 0, "exact_date": 0}
+        for i, r in enumerate(rows, start=2):
             try:
                 posted = _date.fromisoformat(r.get("Posted date", ""))
             except ValueError:
                 posted = None
-            known = r.get("Company job URL", "")
-            urls = [known] if known.startswith("http") else [r.get("Job URL", "")]
-            return rownum, company_posting.resolve(r.get("Company", ""), [r.get("Job title", "")], urls, posted, claude)
-
-        with ThreadPoolExecutor(4) as pool:
-            results = dict(pool.map(resolve, todo.items()))
-        cur_dates = {i + 2: (r.get("Date opened") or "").strip() for i, r in enumerate(rows)}
-        n1 = store.fill_empty_cells("Company job URL", {r: u for r, (u, _) in results.items()}, replace=placeholders)
-        # only replace an approximate date (~) with an exact one
-        better = {r: d for r, (_, d) in results.items() if not d.startswith(("~", "unknown")) or not cur_dates.get(r)}
-        n2 = store.fill_empty_cells("Date opened", better, replace=("unknown",) + tuple(v for v in cur_dates.values() if v.startswith("~")))
-        found = sum(1 for u, _ in results.values() if u != "not found")
-        exact = sum(1 for _, d in results.values() if d and not d.startswith(("~", "unknown")))
-        print(f"{name if not IN_CI else 'profile'}: {len(todo)} rows checked | company URL found for {found} | "
-              f"exact opening date for {exact} | cells written: {n1} + {n2} | ~${claude.usage['cost_usd']:.2f}")
-        if n1 or n2:
-            store.append_run_log(run_log_row(datetime.now(timezone.utc), "backfill-company", usage=claude.usage,
-                                             note=f"company URL found for {found}/{len(todo)} rows"))
+            known = [u for u in (r.get("Job URL", ""), r.get("Company job URL", ""), r.get("LinkedIn URL", "")) if u.startswith("http")]
+            lk = resolver.resolve(r.get("Job title", ""), r.get("Company", ""), r.get("Location", ""), known, posted,
+                                  company_website=r.get("Company website", ""))
+            for col, val in (("Company job URL", lk.company_url), ("Date opened", lk.date_opened), ("LinkedIn URL", lk.linkedin_url)):
+                cells.append(gspread.Cell(i, header.index(col) + 1, val))
+            summary["company"] += lk.company_url.startswith("http")
+            summary["closed"] += lk.company_url.startswith("not listed")
+            summary["linkedin"] += lk.linkedin_url.startswith("http")
+            summary["exact_date"] += not lk.date_opened.startswith(("~", "unknown"))
+            if not IN_CI:
+                print(f"  {r.get('Company', '')[:22]:22} | {lk.date_opened:26} | {lk.company_url[:80]}\n  {'':22} | LinkedIn: {lk.linkedin_url}")
+        if cells:
+            ws.update_cells(cells, value_input_option="RAW")
+        today = datetime.now(timezone.utc).date().isoformat()
+        store.append_state([[STATE_ATS, k, today, v] for k, v in resolver.new_cache.items()])
+        note = (f"links for {len(rows)} rows: company page {summary['company']}, not on company site {summary['closed']}, "
+                f"LinkedIn {summary['linkedin']}, exact date {summary['exact_date']}")
+        store.append_run_log(run_log_row(started, "backfill-links", searches=resolver.serp.searches_used, usage=claude.usage,
+                                         seconds=time.monotonic() - t0, note=note))
+        print(f"{name if not IN_CI else 'profile'}: {note} | serpapi {resolver.serp.searches_used} | ~${claude.usage['cost_usd']:.2f}")
     return 0
 
 
@@ -301,13 +305,9 @@ def main(argv: list[str] | None = None) -> int:
     r.add_argument("--dry-run", action="store_true", help="print what would be added; write nothing")
     r.set_defaults(func=cmd_run)
 
-    b = sub.add_parser("backfill-linkedin", help="fill the LinkedIn URL column for existing rows (empty cells only)")
+    b = sub.add_parser("backfill-links", help="re-find company job URL, date opened and LinkedIn URL for existing rows")
     b.add_argument("--profile", required=True, help="person's folder name, or 'all'")
-    b.set_defaults(func=cmd_backfill_linkedin)
-
-    c = sub.add_parser("backfill-company", help="fill Company job URL + Date opened for existing rows (empty cells only)")
-    c.add_argument("--profile", required=True, help="person's folder name, or 'all'")
-    c.set_defaults(func=cmd_backfill_company)
+    b.set_defaults(func=cmd_backfill_links)
 
     t = sub.add_parser("template", help="print the brief template to paste into a Brief doc")
     t.set_defaults(func=cmd_template)

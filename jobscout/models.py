@@ -74,9 +74,10 @@ RUNLOG_COLUMNS = [
 
 # Hidden bookkeeping tab: lets the agent remember what it already processed
 # without ever touching your rows.
-STATE_COLUMNS = ["Kind", "Key", "Date"]
+STATE_COLUMNS = ["Kind", "Key", "Date", "Value"]
 STATE_FEEDBACK = "feedback_processed"
 STATE_REJECTED = "rejected"
+STATE_ATS = "ats"  # Key = normalized company, Value = detected careers system (or "none")
 
 TAB_BRIEF = "Brief"
 TAB_JOBS = "Jobs"

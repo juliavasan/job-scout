@@ -162,6 +162,7 @@ def test_best_resume_column(fake_llm):
     store.resumes = [("FDE resume.pdf", "Forward deployed engineer, 5 years")]
     pipeline.run_profile(P, store, DummyClaude(), [FakeSource([J("FDE", "Acme")])])
     assert store.jobs[1][JOBS_COLUMNS.index("Best resume")] == "FDE resume.pdf"
+    assert len(store.jobs[1]) == len(JOBS_COLUMNS)
     store2 = FakeStore()  # no library -> 'none'
     pipeline.run_profile(P, store2, DummyClaude(), [FakeSource([J("FDE", "Acme")])])
     assert store2.jobs[1][JOBS_COLUMNS.index("Best resume")] == "none"
@@ -199,7 +200,7 @@ def test_linkedin_column_filled(fake_llm):
                                                                J("TPM", "Beta", url="https://beta.com/1")])])
     li = {r[JOBS_COLUMNS.index("Company")]: r[JOBS_COLUMNS.index("LinkedIn URL")] for r in store.jobs[1:]}
     assert li["Acme"] == "https://linkedin.com/jobs/view/4012345678"
-    assert li["Beta"].startswith("https://www.linkedin.com/jobs/search/?keywords=")
+    assert li["Beta"] == "not found"  # no search links any more: exact posting or "not found"
 
 
 def test_run_log_row_shape():
@@ -212,3 +213,24 @@ def test_run_log_row_shape():
     assert len(row) == len(RUNLOG_COLUMNS)
     d = dict(zip(RUNLOG_COLUMNS, row))
     assert d["Est. cost (USD)"] == 0.27 and d["Added"] == 5 and d["Duration (s)"] == 81 and d["Type"] == "run"
+
+
+def test_resolver_used_and_ats_cached(fake_llm):
+    from jobscout.careers import Links
+
+    class FakeResolver:
+        def __init__(self):
+            self.cache, self.new_cache, self.calls = {}, {}, 0
+
+        def resolve(self, title, company, location, urls, d, company_website="", alt_titles=None):
+            self.calls += 1
+            self.new_cache["acme"] = '["greenhouse", "acme", ""]'
+            return Links(company_url="https://boards.greenhouse.io/acme/jobs/123456", date_opened="2026-10-29 (greenhouse)",
+                         linkedin_url="https://linkedin.com/jobs/view/4012345678")
+
+    store, res = FakeStore(), FakeResolver()
+    pipeline.run_profile(P, store, DummyClaude(), [FakeSource([J("FDE", "Acme")])], resolver=res)
+    row = dict(zip(JOBS_COLUMNS, store.jobs[1]))
+    assert row["Company job URL"].endswith("/123456") and row["Date opened"].startswith("2026-10-29")
+    assert row["LinkedIn URL"] == "https://linkedin.com/jobs/view/4012345678"
+    assert ["ats", "acme"] == store.state[-1][:2] or any(r[0] == "ats" for r in store.state[1:])

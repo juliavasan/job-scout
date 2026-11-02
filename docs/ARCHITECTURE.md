@@ -35,7 +35,7 @@ flowchart LR
 
     subgraph SOURCES["Job sources (pluggable)"]
         SERP["SerpApi Google Jobs<br/>LinkedIn, Indeed, Glassdoor,<br/>company career pages"]
-        ATS["Greenhouse / Lever / Ashby<br/>public JSON boards"]
+        ATS["Company career sites<br/>Workday · Eightfold · Greenhouse<br/>Lever · Ashby · SmartRecruiters"]
     end
 
     subgraph CLAUDE["Anthropic API"]
@@ -68,15 +68,16 @@ flowchart TD
     D --> E["Append dated rules to the end<br/>of the Brief doc"]
     C -- no --> F
     E --> F["Claude Haiku: brief + resumes → 3–4 search queries<br/>+ title keywords"]
-    F --> G["Fetch: SerpApi Google Jobs<br/>+ 'Companies to watch' ATS boards"]
-    G --> H["Drop postings older than 7 days"]
+    F --> G["Fetch: SerpApi Google Jobs<br/>+ watched companies' own career sites"]
+    G --> H["Drop postings older than 7 days<br/>(30 for watched companies)"]
     H --> I["Dedup<br/>1. canonical URL<br/>2. company + title + location<br/>3. company + title marked Not a fit<br/>4. rejected in an earlier run"]
     I --> J["Claude Sonnet: judge each candidate<br/>against brief + learned exclusions + best-matching resume<br/>→ validated JSON incl. best_resume"]
     J --> K{"include AND<br/>score ≥ min?"}
     K -- no --> L["Record in _state as rejected<br/>so it isn't judged again"]
     K -- yes --> M["Sort by score, keep top 25"]
     M --> N["Company facts: reuse from sheet,<br/>else Claude + web search<br/>('unknown' if not found)"]
-    N --> O["Append rows to Jobs, Status = New"]
+    N --> N2["Links: find the job on the company's<br/>careers system → exact URL + date opened;<br/>exact LinkedIn posting if Google lists one"]
+    N2 --> O["Append rows to Jobs, Status = New"]
     O --> P["Append one row to Log"]
     L --> P
 ```
@@ -104,8 +105,8 @@ sequenceDiagram
         CLI->>SA: google_jobs search
         SA-->>CLI: ~10 postings
     end
-    CLI->>ATS: watched companies' boards (optional)
-    ATS-->>CLI: postings matching title keywords
+    CLI->>ATS: watched companies' career sites (Workday, Eightfold, Greenhouse, ...)
+    ATS-->>CLI: matching postings + exact dates + descriptions
     Note over CLI: dedup against sheet + _state
     par up to 4 at a time
         CLI->>C: judge(brief, posting) [Sonnet]
@@ -115,7 +116,11 @@ sequenceDiagram
         CLI->>C: company_facts(company) [Sonnet + web_search]
         C-->>CLI: CompanyFacts JSON
     end
-    CLI->>G: append Jobs rows, _state rows, Log row
+    loop each accepted job
+        CLI->>ATS: find this job on the company's careers system
+        ATS-->>CLI: exact posting URL + date opened (or "not listed")
+    end
+    CLI->>G: append Jobs rows, _state rows (incl. ATS cache), Log rows
 ```
 
 ## Feedback loop
@@ -150,7 +155,10 @@ jobscout/
 └── sources/
     ├── base.py         Source ABC, SearchPlan, date parsing
     ├── serpapi_google_jobs.py   Google Jobs → RawJob; prefers LinkedIn apply link
-    └── ats.py          Greenhouse / Lever / Ashby boards + watchlist parsing
+    └── company_sites.py         watched companies' own career sites + watchlist parsing
+careers.py              ATS detection (Workday, Eightfold, Greenhouse, Lever, Ashby, SmartRecruiters), ATS search,
+                        LinkResolver: company job URL + date opened + exact LinkedIn link, link verification
+linkedin.py             LinkedIn link helpers (exact /jobs/view/ only, employer check)
 ```
 
 | Module | Depends on | Talks to |
@@ -178,7 +186,7 @@ Company size · Funding stage · HQ · Company description · Job URL · Company
 
 **Log tab**: Run at (UTC) · Found · Added · Skipped: duplicate · Skipped: excluded/low score · Skipped: over cap · New learned exclusions · Errors
 
-**_state tab** (hidden): Kind (`feedback_processed` / `rejected`) · Key · Date
+**_state tab** (hidden): Kind (`feedback_processed` / `rejected` / `ats`) · Key · Date · Value (the ATS cache maps company → careers system)
 
 ## Claude calls
 
