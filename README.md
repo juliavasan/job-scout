@@ -45,18 +45,23 @@ Company facts come from a web search by Claude. Anything it can't confirm is wri
 
 ## What it needs from you (keys, tokens and where each one goes)
 
-| What | Where to get it | Local run (`.env`, gitignored) | Cloud run (GitHub → Settings → Secrets → Actions) | Needed? |
-|---|---|---|---|---|
-| **Claude subscription token** | Run `claude setup-token` in a terminal and log in. It prints `sk-ant-oat01-…`, valid ~1 year | Not needed: uses your logged-in Claude Code | `CLAUDE_CODE_OAUTH_TOKEN` | Yes, for cloud runs on your subscription |
-| **Anthropic API key** | console.anthropic.com → Settings → API keys (`sk-ant-api…`). Pay-as-you-go credit | `ANTHROPIC_API_KEY` | `ANTHROPIC_API_KEY` | Optional: only used when Claude Code isn't available |
-| **SerpApi key** | serpapi.com → sign up (free 250 searches/month) → serpapi.com/manage-api-key | `SERPAPI_API_KEY` | `SERPAPI_API_KEY` | Yes |
-| **Google service account key** | Google Cloud Console → project → IAM → Service accounts → Keys → Add key → JSON (see Setup step 3) | `GOOGLE_SERVICE_ACCOUNT_FILE=./secrets/service-account.json` (path to the file) | `GOOGLE_SERVICE_ACCOUNT_JSON` (the file's **entire contents**) | Yes |
-| **Drive folder ID** | Your "Job Scout" folder's URL: `drive.google.com/drive/folders/<ID>` | `JOBSCOUT_ROOT_FOLDER_ID` | `JOBSCOUT_ROOT_FOLDER_ID` | Yes |
+| What | Where to get it | Local run (`.env`, gitignored) | Cloud run (GitHub → Settings → Secrets → Actions) |
+|---|---|---|---|
+| **Claude subscription token** | In a terminal run `claude setup-token`, log in, copy the `sk-ant-oat01-…` it prints (valid ~1 year) | Not needed: uses your logged-in Claude Code | `CLAUDE_CODE_OAUTH_TOKEN` |
+| **SerpApi key** | serpapi.com → sign up (free: 250 searches/month) → serpapi.com/manage-api-key | `SERPAPI_API_KEY` | `SERPAPI_API_KEY` |
+| **Google service account key** | Google Cloud Console → project → IAM → Service accounts → Keys → Add key → JSON (Setup step 3) | `GOOGLE_SERVICE_ACCOUNT_FILE=./secrets/service-account.json` (path to the file) | `GOOGLE_SERVICE_ACCOUNT_JSON` (the file's **entire contents**) |
+| **Drive folder ID** | Your "Job Scout" folder's URL: `drive.google.com/drive/folders/<ID>` | `JOBSCOUT_ROOT_FOLDER_ID` | `JOBSCOUT_ROOT_FOLDER_ID` |
+
+**Not needed: Anthropic API key.** Claude runs on your Claude subscription through Claude Code, both locally and in the
+cloud. `ANTHROPIC_API_KEY` is only a legacy fallback, used if Claude Code isn't installed or the cloud token is
+missing. It is never used when your weekly Claude usage runs out; the run stops instead. Leave it unset unless you
+deliberately want pay-as-you-go API billing (`JOBSCOUT_LLM_BACKEND=api`).
 
 Also required, though not secrets:
 - In the Google Cloud project, the **Drive, Sheets and Docs APIs are enabled**.
 - The **Job Scout folder is shared** with the service account's email (`…@….iam.gserviceaccount.com`) as **Editor**.
 - Each person's subfolder has a `Brief` Google Doc and an empty `Jobs` Google Sheet. `Resumes` and `Log` are optional.
+- Locally: **Claude Code installed and logged in** (`claude`), plus Python 3.10+.
 - For setting secrets from the terminal: the GitHub CLI, logged in with the `workflow` scope (`gh auth refresh -s workflow`).
 
 Setting the cloud secrets from a terminal (paste each value when asked; never paste keys into chats or commits):
@@ -65,7 +70,6 @@ gh secret set CLAUDE_CODE_OAUTH_TOKEN
 gh secret set SERPAPI_API_KEY
 gh secret set GOOGLE_SERVICE_ACCOUNT_JSON < secrets/service-account.json
 gh secret set JOBSCOUT_ROOT_FOLDER_ID
-gh secret set ANTHROPIC_API_KEY          # optional fallback
 ```
 
 Optional settings (env vars locally, or extra secrets/variables in CI), defaults in brackets:
@@ -145,7 +149,6 @@ Add four repository secrets: **Settings → Secrets and variables → Actions**,
 ```bash
 claude setup-token                      # optional: prints a long-lived token for your Claude subscription
 gh secret set CLAUDE_CODE_OAUTH_TOKEN   # paste it; cloud runs then use the subscription instead of API credit
-gh secret set ANTHROPIC_API_KEY         # used only when CLAUDE_CODE_OAUTH_TOKEN isn't set
 gh secret set SERPAPI_API_KEY
 gh secret set GOOGLE_SERVICE_ACCOUNT_JSON < secrets/service-account.json
 gh secret set JOBSCOUT_ROOT_FOLDER_ID
