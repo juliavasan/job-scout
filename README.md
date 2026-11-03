@@ -89,9 +89,10 @@ pip install -e '.[dev]'
 cp .env.example .env
 ```
 
-### 2. API keys (put them in `.env`)
+### 2. Claude + SerpApi
 
-- **Anthropic.** Create a key at <https://console.anthropic.com/settings/keys> and put it in `.env` as `ANTHROPIC_API_KEY`.
+- **Claude.** Install Claude Code and log in (`claude`). Local runs use your Claude subscription automatically, so no API key
+  is needed. For the cloud run, create a token with `claude setup-token` (see step 6).
 - **SerpApi.** Sign up at <https://serpapi.com> (the free plan gives 250 searches a month) and copy your key from
   <https://serpapi.com/manage-api-key> into `.env` as `SERPAPI_API_KEY`.
   By default each person uses up to 4 searches per run, so 2 people × 4 × 30 days = 240 a month.
