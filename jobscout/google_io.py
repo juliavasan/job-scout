@@ -224,6 +224,16 @@ def discover_profiles(drive: Drive, root_folder_id: str) -> list[tuple[str, str]
 
 # ---------- sheet formatting ----------
 
+def _last_job_row(ws: gspread.Worksheet) -> int:
+    """1-based number of the last row that has a Job title (1 = header only)."""
+    header = ws.row_values(1)
+    if "Job title" not in header:
+        return 1
+    col = ws.col_values(header.index("Job title") + 1)
+    filled = [i for i, v in enumerate(col, start=1) if v.strip()]
+    return max(filled) if filled else 1
+
+
 def ensure_sheet_layout(gc: gspread.Client, sheet_id: str) -> list[str]:
     """Create/repair Jobs, Log and hidden _state tabs. Never overwrites existing content."""
     sh = gc.open_by_key(sheet_id)
@@ -302,15 +312,19 @@ def ensure_sheet_layout(gc: gspread.Client, sheet_id: str) -> list[str]:
     status_col = hdr.index("Status")
     url_col = hdr.index("Job URL")
     requests = []
+    last = _last_job_row(jobs)  # checkboxes only on rows that hold a job (new rows get theirs when appended)
     for col in CHECKBOX_COLUMNS:
         ci = hdr.index(col)
         requests += [
             {"setDataValidation": {
-                "range": {"sheetId": jobs.id, "startRowIndex": 1, "startColumnIndex": ci, "endColumnIndex": ci + 1},
-                "rule": {"condition": {"type": "BOOLEAN"}, "showCustomUi": True}}},
+                "range": {"sheetId": jobs.id, "startRowIndex": last, "startColumnIndex": ci, "endColumnIndex": ci + 1}}},  # clear below
             {"updateDimensionProperties": {"range": {"sheetId": jobs.id, "dimension": "COLUMNS", "startIndex": ci, "endIndex": ci + 1},
                                            "properties": {"pixelSize": 70}, "fields": "pixelSize"}},
         ]
+        if last > 1:
+            requests.append({"setDataValidation": {
+                "range": {"sheetId": jobs.id, "startRowIndex": 1, "endRowIndex": last, "startColumnIndex": ci, "endColumnIndex": ci + 1},
+                "rule": {"condition": {"type": "BOOLEAN"}, "showCustomUi": True}}})
     requests += [
         *[{"updateSheetProperties": {"properties": {"sheetId": ws.id, "gridProperties": {"frozenRowCount": 1}},
                                      "fields": "gridProperties.frozenRowCount"}} for ws in (jobs, logws, state)],
@@ -428,7 +442,7 @@ class DriveProfileStore:
             if ws.title.lower().startswith("jobs archive"):
                 values = ws.get_all_values()
                 if values:
-                    out += [dict(zip(values[0], r)) for r in values[1:] if any(c.strip() for c in r)]
+                    out += [d for r in values[1:] if (d := dict(zip(values[0], r))).get("Job title", "").strip()]
         return out
 
     def read_jobs(self) -> list[dict]:
@@ -438,7 +452,8 @@ class DriveProfileStore:
         header = values[0]
         out = []
         for n, row in enumerate(values[1:], start=2):
-            if any(c.strip() for c in row):
+            d0 = dict(zip(header, row))
+            if (d0.get("Job title") or "").strip() or (d0.get("Job URL") or "").strip():  # checkbox-only rows aren't jobs
                 d = dict(zip(header, row + [""] * (len(header) - len(row))))
                 d["_row"] = n
                 out.append(d)
@@ -470,8 +485,16 @@ class DriveProfileStore:
             ws = self._ws(TAB_JOBS)
             header = ws.row_values(1)
             ordered = [[dict(zip(JOBS_COLUMNS, r)).get(h, "") for h in header] for r in rows]
-            # RAW so text from postings is never interpreted as a formula.
-            ws.append_rows(ordered, value_input_option="RAW", insert_data_option="INSERT_ROWS", table_range="A1")
+            start = _last_job_row(ws) + 1  # right after the last job (checkbox-only rows don't count)
+            end = start + len(ordered) - 1
+            if end > ws.row_count:
+                ws.add_rows(end - ws.row_count)
+            # RAW so text from postings is never interpreted as a formula. Checkbox cells stay empty (= unticked).
+            ws.update(ordered, f"A{start}:{gspread.utils.rowcol_to_a1(end, len(header))}", value_input_option="RAW")
+            self.sh.batch_update({"requests": [{"setDataValidation": {
+                "range": {"sheetId": ws.id, "startRowIndex": start - 1, "endRowIndex": end,
+                          "startColumnIndex": header.index(c), "endColumnIndex": header.index(c) + 1},
+                "rule": {"condition": {"type": "BOOLEAN"}, "showCustomUi": True}}} for c in CHECKBOX_COLUMNS if c in header]})
 
     def fill_empty_cells(self, column: str, values: dict[int, str], replace: tuple[str, ...] = ()) -> int:
         """Write values into EMPTY cells of one agent-owned column (or cells holding one of the agent's own
