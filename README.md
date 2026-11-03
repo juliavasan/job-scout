@@ -43,6 +43,37 @@ Company website · Source · **Status** (dropdown) · **My feedback** · **Best 
 
 Company facts come from a web search by Claude. Anything it can't confirm is written as `unknown`, never guessed.
 
+## What it needs from you (keys, tokens and where each one goes)
+
+| What | Where to get it | Local run (`.env`, gitignored) | Cloud run (GitHub → Settings → Secrets → Actions) | Needed? |
+|---|---|---|---|---|
+| **Claude subscription token** | Run `claude setup-token` in a terminal and log in. It prints `sk-ant-oat01-…`, valid ~1 year | Not needed: uses your logged-in Claude Code | `CLAUDE_CODE_OAUTH_TOKEN` | Yes, for cloud runs on your subscription |
+| **Anthropic API key** | console.anthropic.com → Settings → API keys (`sk-ant-api…`). Pay-as-you-go credit | `ANTHROPIC_API_KEY` | `ANTHROPIC_API_KEY` | Optional: only used when Claude Code isn't available |
+| **SerpApi key** | serpapi.com → sign up (free 250 searches/month) → serpapi.com/manage-api-key | `SERPAPI_API_KEY` | `SERPAPI_API_KEY` | Yes |
+| **Google service account key** | Google Cloud Console → project → IAM → Service accounts → Keys → Add key → JSON (see Setup step 3) | `GOOGLE_SERVICE_ACCOUNT_FILE=./secrets/service-account.json` (path to the file) | `GOOGLE_SERVICE_ACCOUNT_JSON` (the file's **entire contents**) | Yes |
+| **Drive folder ID** | Your "Job Scout" folder's URL: `drive.google.com/drive/folders/<ID>` | `JOBSCOUT_ROOT_FOLDER_ID` | `JOBSCOUT_ROOT_FOLDER_ID` | Yes |
+
+Also required, though not secrets:
+- In the Google Cloud project, the **Drive, Sheets and Docs APIs are enabled**.
+- The **Job Scout folder is shared** with the service account's email (`…@….iam.gserviceaccount.com`) as **Editor**.
+- Each person's subfolder has a `Brief` Google Doc and an empty `Jobs` Google Sheet. `Resumes` and `Log` are optional.
+- For setting secrets from the terminal: the GitHub CLI, logged in with the `workflow` scope (`gh auth refresh -s workflow`).
+
+Setting the cloud secrets from a terminal (paste each value when asked; never paste keys into chats or commits):
+```bash
+gh secret set CLAUDE_CODE_OAUTH_TOKEN
+gh secret set SERPAPI_API_KEY
+gh secret set GOOGLE_SERVICE_ACCOUNT_JSON < secrets/service-account.json
+gh secret set JOBSCOUT_ROOT_FOLDER_ID
+gh secret set ANTHROPIC_API_KEY          # optional fallback
+```
+
+Optional settings (env vars locally, or extra secrets/variables in CI), defaults in brackets:
+`JOBSCOUT_LLM_BACKEND` [auto: claude-code if installed, else api] · `JOBSCOUT_MAX_QUERIES` [4] ·
+`JOBSCOUT_MAX_NEW_ROWS` [25] · `JOBSCOUT_MIN_FIT_SCORE` [6] · `JOBSCOUT_MAX_AGE_DAYS` [7] ·
+`JOBSCOUT_PER_COMPANY` [5] · `JOBSCOUT_WATCH_MAX_AGE_DAYS` [90] · `JOBSCOUT_MAX_LOOKUPS` [0] ·
+`JOBSCOUT_SERP_CACHE_HOURS` [20].
+
 ## Setup (one time, ~20 minutes)
 
 ### 1. Install
