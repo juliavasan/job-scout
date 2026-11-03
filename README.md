@@ -5,8 +5,6 @@ against a **free-text brief** you write, looks up basic facts about the company,
 good ones to a **Google Sheet**, ready to triage over coffee. It supports several people, each with
 their own folder, brief and sheet.
 
-See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for diagrams and design details.
-
 ![Job Scout architecture](docs/architecture.svg)
 
 More detail (flows, data model, design notes): [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
