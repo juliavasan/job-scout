@@ -263,20 +263,38 @@ def ensure_sheet_layout(gc: gspread.Client, sheet_id: str) -> list[str]:
     state = ensure(TAB_STATE, len(STATE_COLUMNS))
 
     fresh = False
-    for ws, header in ((jobs, JOBS_COLUMNS), (logws, LOG_COLUMNS), (state, STATE_COLUMNS)):
+    # Jobs: columns are matched by NAME, so you can reorder columns or add your own.
+    first = jobs.row_values(1)
+    if not any(first):
+        jobs.update([JOBS_COLUMNS], "A1", value_input_option="RAW")
+        done.append("wrote Jobs header")
+        fresh = True
+    else:
+        if "Applied" not in first:  # checkbox column goes first (column A); existing data shifts right intact
+            sh.batch_update({"requests": [{"insertDimension": {
+                "range": {"sheetId": jobs.id, "dimension": "COLUMNS", "startIndex": 0, "endIndex": 1}, "inheritFromBefore": False}}]})
+            jobs.update([["Applied"]], "A1", value_input_option="RAW")
+            done.append("added Applied checkbox column (A)")
+            first = jobs.row_values(1)
+        missing = [h for h in JOBS_COLUMNS if h not in first]
+        if missing:
+            need = len(first) + len(missing)
+            if jobs.col_count < need:
+                jobs.add_cols(need - jobs.col_count)
+            jobs.update([missing], gspread.utils.rowcol_to_a1(1, len(first) + 1), value_input_option="RAW")
+            done.append(f"added Jobs columns: {', '.join(missing)}")
+    for ws, header in ((logws, LOG_COLUMNS), (state, STATE_COLUMNS)):
         first = ws.row_values(1)
         if not any(first):
             ws.update([header], "A1", value_input_option="RAW")
             done.append(f"wrote {ws.title} header")
-            fresh = fresh or ws is jobs
         elif first[: len(header)] == header:
             pass
         elif header[: len(first)] == first:  # older layout: add the new columns at the end
             missing = header[len(first):]
             if ws.col_count < len(header):
                 ws.add_cols(len(header) - ws.col_count)
-            start = gspread.utils.rowcol_to_a1(1, len(first) + 1)
-            ws.update([missing], start, value_input_option="RAW")
+            ws.update([missing], gspread.utils.rowcol_to_a1(1, len(first) + 1), value_input_option="RAW")
             done.append(f"added {ws.title} columns: {', '.join(missing)}")
         else:
             done.append(f"WARNING: {ws.title} header differs from expected; left as is")
@@ -284,9 +302,16 @@ def ensure_sheet_layout(gc: gspread.Client, sheet_id: str) -> list[str]:
     if not fresh and not done:
         return done  # already set up; don't re-apply formatting every run
 
-    status_col = JOBS_COLUMNS.index("Status")
-    url_col = JOBS_COLUMNS.index("Job URL")
+    hdr = jobs.row_values(1)
+    status_col = hdr.index("Status")
+    url_col = hdr.index("Job URL")
+    applied_col = hdr.index("Applied")
     requests = [
+        {"setDataValidation": {
+            "range": {"sheetId": jobs.id, "startRowIndex": 1, "startColumnIndex": applied_col, "endColumnIndex": applied_col + 1},
+            "rule": {"condition": {"type": "BOOLEAN"}, "showCustomUi": True}}},
+        {"updateDimensionProperties": {"range": {"sheetId": jobs.id, "dimension": "COLUMNS", "startIndex": applied_col, "endIndex": applied_col + 1},
+                                       "properties": {"pixelSize": 70}, "fields": "pixelSize"}},
         *[{"updateSheetProperties": {"properties": {"sheetId": ws.id, "gridProperties": {"frozenRowCount": 1}},
                                      "fields": "gridProperties.frozenRowCount"}} for ws in (jobs, logws, state)],
         *[{"repeatCell": {"range": {"sheetId": ws.id, "startRowIndex": 0, "endRowIndex": 1},
@@ -396,6 +421,16 @@ class DriveProfileStore:
     def _ws(self, title: str) -> gspread.Worksheet:
         return self.sh.worksheet(title)
 
+    def read_archived_jobs(self) -> list[dict]:
+        """Rows from 'Jobs archive …' tabs: still count as already seen, so they aren't re-added."""
+        out = []
+        for ws in self.sh.worksheets():
+            if ws.title.lower().startswith("jobs archive"):
+                values = ws.get_all_values()
+                if values:
+                    out += [dict(zip(values[0], r)) for r in values[1:] if any(c.strip() for c in r)]
+        return out
+
     def read_jobs(self) -> list[dict]:
         values = self._ws(TAB_JOBS).get_all_values()
         if not values:
@@ -430,9 +465,13 @@ class DriveProfileStore:
         return flagged
 
     def append_jobs(self, rows: list[list[str]]) -> None:
+        """Rows come in JOBS_COLUMNS order; they're written by column NAME to match the sheet's actual header."""
         if rows:
+            ws = self._ws(TAB_JOBS)
+            header = ws.row_values(1)
+            ordered = [[dict(zip(JOBS_COLUMNS, r)).get(h, "") for h in header] for r in rows]
             # RAW so text from postings is never interpreted as a formula.
-            self._ws(TAB_JOBS).append_rows(rows, value_input_option="RAW", insert_data_option="INSERT_ROWS", table_range="A1")
+            ws.append_rows(ordered, value_input_option="RAW", insert_data_option="INSERT_ROWS", table_range="A1")
 
     def fill_empty_cells(self, column: str, values: dict[int, str], replace: tuple[str, ...] = ()) -> int:
         """Write values into EMPTY cells of one agent-owned column (or cells holding one of the agent's own

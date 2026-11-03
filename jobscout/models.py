@@ -7,6 +7,7 @@ from datetime import date
 # Column order of the `Jobs` tab. The pipeline reads rows by header name, so you
 # can add your own columns to the right without breaking anything.
 JOBS_COLUMNS = [
+    "Applied",  # checkbox, yours to tick; the agent never sets it
     "Date added",
     "Fit score (1–10)",
     "Job title",

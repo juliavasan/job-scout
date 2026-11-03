@@ -35,7 +35,7 @@ Job Scout/                                             ┌───────�
 | **Log** (Google Sheet, optional) | Run history with cost per run. You create it empty; the agent adds a **Runs** tab. |
 | **Jobs** (Google Sheet) | You create it empty. The agent adds three tabs: **Jobs** (results), **Log** (one row per run) and a hidden **_state** tab (bookkeeping). |
 
-**Jobs tab columns:** Date added · Fit score (1–10) · Job title · Company · Why it fits · Concerns / red flags ·
+**Jobs tab columns:** **Applied** (checkbox, yours to tick) · Date added · Fit score (1–10) · Job title · Company · Why it fits · Concerns / red flags ·
 Location · Work mode · Employment type · Seniority · Salary range · Equity mentioned · Posted date ·
 Company type / industry · Company size · Funding stage / public · HQ · Company description · Job URL ·
 Company website · Source · **Status** (dropdown) · **My feedback** · **Best resume** · **LinkedIn URL** · **Company job URL** · **Date opened**
@@ -224,7 +224,7 @@ of a few resumes adds little cost.
 
 ## Dedup rules
 
-A posting is skipped if any of these is true:
+A posting is skipped if any of these is true (rows in **"Jobs archive …"** tabs count too, so archived jobs never come back):
 1. Its canonical URL is already in the sheet. Tracking parameters are stripped, and LinkedIn URLs are reduced to
    `linkedin.com/jobs/view/<id>`. Every apply link of a posting is checked, so the same job reached through LinkedIn and
    through the company's site still matches.
@@ -285,6 +285,7 @@ Optional limits (env vars / secrets): `JOBSCOUT_MAX_NEW_ROWS` (25), `JOBSCOUT_MA
   SerpApi searches, Claude calls and tokens, Claude web searches, **estimated cost (USD)**, duration and errors.
   The cost is computed from token counts and list prices (Sonnet $2/$10 per M tokens, cache reads $0.20, web search $0.01);
   SerpApi's free plan costs $0. Dry runs aren't written here.
+- Columns in the Jobs tab are matched **by name**. You can reorder them or add your own, and new rows still land in the right place.
 - **Jobs sheet → Log tab:** a short row per run (found / added / skipped / errors).
 - **`logs/runs.log`** (local only, gitignored): one line per local run, with more detail: SerpApi searches used, Claude calls and tokens,
   web searches, estimated cost, and duration. For example:

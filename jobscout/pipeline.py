@@ -166,14 +166,17 @@ def run_profile(
     rep.found = len(raw)
     rep.raw_jobs = raw
 
-    # 3) Dedup (URL first, then company+title+location; also anything marked Not a fit or rejected before)
-    seen_urls = set() if replay else {u for r in rows if (u := canonical_url(r.get("Job URL", "")))}
-    seen_keys = set() if replay else {job_key(r.get("Company", ""), r.get("Job title", ""), r.get("Location", "")) for r in rows}
+    # 3) Dedup (URL first, then company+title+location; also anything marked Not a fit or rejected before).
+    #    Rows in "Jobs archive" tabs count as already seen.
+    archived = [] if replay else getattr(store, "read_archived_jobs", lambda: [])()
+    history = [] if replay else rows + archived
+    seen_urls = {u for r in history if (u := canonical_url(r.get("Job URL", "")))}
+    seen_keys = {job_key(r.get("Company", ""), r.get("Job title", ""), r.get("Location", "")) for r in history}
     not_fit = {company_title_key(r.get("Company", ""), r.get("Job title", "")) for r in rows if r.get("_not_fit")}
     rejected = {s["Key"] for s in state if s.get("Kind") == STATE_REJECTED}
     # company+title -> location words seen, to catch "Santa Clara" vs "Santa Clara (Flexible or Remote)"
     seen_ct: dict[str, set[str]] = {}
-    for r in ([] if replay else rows):
+    for r in history:
         seen_ct.setdefault(company_title_key(r.get("Company", ""), r.get("Job title", "")), set()).update(_loc_words(r.get("Location", "")))
     candidates: list[RawJob] = []
     for job in raw:
@@ -288,7 +291,7 @@ def run_profile(
     for (job, j), (li_url, co_url, opened) in zip(accepted, link_info):
         f = known.get(normalize_company(job.company), UNKNOWN_FACTS)
         rep.rows.append([
-            day, str(j.fit_score), j.job_title or job.title, job.company, j.why_it_fits, j.concerns,
+            "", day, str(j.fit_score), j.job_title or job.title, job.company, j.why_it_fits, j.concerns,
             j.location or job.location, j.work_mode, j.employment_type, j.seniority, j.salary_range,
             j.equity_mentioned, job.posted_date.isoformat() if job.posted_date else "unknown",
             f.company_type_industry, f.size_employees, f.funding_stage_or_public, f.hq, f.one_line_description,
