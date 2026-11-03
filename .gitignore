@@ -29,3 +29,6 @@ logs/
 *.log
 out/
 .DS_Store
+
+# eval data: real postings + your labels (private, never commit)
+.claude/hillclimb/

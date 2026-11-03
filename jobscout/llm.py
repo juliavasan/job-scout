@@ -144,6 +144,8 @@ class Claude:
         self.backend = backend or ("api" if client is not None else resolve_backend())
         self.client = client or (anthropic.Anthropic(max_retries=4) if self.backend == "api" else None)
         self.usage = {"input_tokens": 0, "output_tokens": 0, "calls": 0, "web_searches": 0, "cost_usd": 0.0}
+        self.last_model = ""   # model that served the most recent call (from the response, not our config)
+        self.last_raw_usage: dict = {}
 
     def _track(self, model: str, u) -> None:
         inp, out = u.input_tokens or 0, u.output_tokens or 0
@@ -187,6 +189,8 @@ class Claude:
                 resp = self._create(model, max_tokens=max_tokens, system=system_blocks, messages=messages,
                                     output_config=output_config, **extra)
                 self._track(model, resp.usage)
+                self.last_model = getattr(resp, "model", model)
+                self.last_raw_usage = {k: getattr(resp.usage, k, 0) or 0 for k in ("input_tokens", "output_tokens", "cache_read_input_tokens", "cache_creation_input_tokens")}
                 if resp.stop_reason != "pause_turn":
                     break
                 messages = [*messages, {"role": "assistant", "content": resp.content}]
@@ -248,6 +252,8 @@ class Claude:
                 if "limit" in last_err.lower():
                     break
                 continue
+            self.last_model = next(iter(out.get("modelUsage") or {}), "") or model
+            self.last_raw_usage = {k: u.get(k) or 0 for k in ("input_tokens", "output_tokens", "cache_read_input_tokens", "cache_creation_input_tokens")}
             data = out.get("structured_output")
             try:
                 return schema.model_validate(data if data is not None else _extract_json(out.get("result") or ""))
@@ -325,7 +331,8 @@ Rules:
 </brief>{resumes}"""
 
 
-def judge(llm: Claude, brief: str, job: RawJob, resumes: list[tuple[str, str]] | None = None) -> Judgment:
+def judge_prompts(brief: str, job: RawJob, resumes: list[tuple[str, str]] | None = None) -> tuple[str, str]:
+    """(system, user) exactly as the judge sends them."""
     hints = "\n".join(
         f"{k}: {v}" for k, v in [
             ("Salary (from listing metadata)", job.salary_hint),
@@ -338,7 +345,12 @@ def judge(llm: Claude, brief: str, job: RawJob, resumes: list[tuple[str, str]] |
         f"<posting>\nTitle: {job.title}\nCompany: {job.company}\nLocation: {job.location}\n{hints}\n\n"
         f"{job.description[:MAX_DESCRIPTION_CHARS]}\n</posting>"
     )
-    return llm.call_json(Judgment, model=JUDGE_MODEL, effort="low", system=JUDGE_SYSTEM.replace("{brief}", brief).replace("{resumes}", format_resumes(resumes or [])), user=user, max_tokens=4000)
+    return JUDGE_SYSTEM.replace("{brief}", brief).replace("{resumes}", format_resumes(resumes or [])), user
+
+
+def judge(llm: Claude, brief: str, job: RawJob, resumes: list[tuple[str, str]] | None = None) -> Judgment:
+    system, user = judge_prompts(brief, job, resumes)
+    return llm.call_json(Judgment, model=JUDGE_MODEL, effort="low", system=system, user=user, max_tokens=4000)
 
 
 COMPANY_SYSTEM = """You look up basic facts about an employer for a job seeker's spreadsheet.

@@ -363,6 +363,23 @@ def cmd_backfill_links(args) -> int:
     return 0
 
 
+def cmd_eval(args) -> int:
+    from . import evaluation as E
+    from .google_io import DriveProfileStore, setup_profile
+
+    E.FLOW_DIR.mkdir(parents=True, exist_ok=True)
+    E.check_harness(args.approve_harness)
+    drive, _ = _drive()
+    (name, folder_id), = _profiles(drive, args.profile)
+    files, _ = setup_profile(drive, name, folder_id)
+    store = DriveProfileStore(drive, files)
+    s = E.run_eval(store, Profile.from_env(name, folder_id), variant=args.variant, reps=args.reps,
+                   limit=args.limit, workers=args.workers, timeout_s=args.timeout_s,
+                   only=args.cases.split(",") if args.cases else None)
+    print(E.format_summary(s) + f"\n  wall clock      : {s['wall_clock_s']}s")
+    return 0
+
+
 def cmd_template(args) -> int:
     from .google_io import BRIEF_TEMPLATE
 
@@ -388,6 +405,17 @@ def main(argv: list[str] | None = None) -> int:
     b = sub.add_parser("backfill-links", help="re-find company job URL, date opened and LinkedIn URL for existing rows")
     b.add_argument("--profile", required=True, help="person's folder name, or 'all'")
     b.set_defaults(func=cmd_backfill_links)
+
+    e = sub.add_parser("eval", help="measure the judge against your own Fit / Not fit labels (Eval tab)")
+    e.add_argument("--profile", required=True)
+    e.add_argument("--variant", default="baseline", help="results folder name: baseline, v1, v2, ...")
+    e.add_argument("--reps", type=int, default=1)
+    e.add_argument("--limit", type=int, default=None, help="only the first N labelled cases (pilot)")
+    e.add_argument("--cases", default="", help="comma-separated case ids to run")
+    e.add_argument("--workers", type=int, default=4)
+    e.add_argument("--timeout-s", type=int, default=600)
+    e.add_argument("--approve-harness", action="store_true", help="approve the current eval runner (you, after reviewing it)")
+    e.set_defaults(func=cmd_eval)
 
     t = sub.add_parser("template", help="print the brief template to paste into a Brief doc")
     t.set_defaults(func=cmd_template)
