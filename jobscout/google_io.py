@@ -3,7 +3,7 @@
 You share ONE folder with the service account's email; it sees nothing else.
 
     Job Scout/                 <- root folder (its ID goes in JOBSCOUT_ROOT_FOLDER_ID)
-      julia/                   <- one subfolder per person = one profile
+      alex/                    <- one subfolder per person = one profile
         Brief                  <- Google Doc (or .txt) with the search brief
         Jobs                   <- Google Sheet (you create it empty; tabs are added automatically)
       friend/
@@ -48,34 +48,29 @@ MIME_PDF = "application/pdf"
 MIME_DOCX = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
 
 BRIEF_TEMPLATE = """About me (paste your resume or a short summary — used to judge whether you're a strong candidate):
-- (e.g. 8 years as a software engineer, last 3 building LLM features at a Series C startup;
-  Python, TypeScript, AWS; led customer integrations for enterprise clients; based in Oakland, CA)
+- (e.g. years of experience, recent roles, main skills, industries, where you're based)
 
 Target roles:
-- (e.g. Forward Deployed Engineer, Solutions Engineer, Technical PM for AI products)
+- (e.g. the job titles you want, and what the work is)
 
-Seniority: (e.g. Senior / Staff; no junior roles)
-Location / remote: (e.g. Remote in the US, or hybrid in the SF Bay Area at most 2 days/week)
-Employment type: (e.g. full-time only)
+Seniority: (e.g. which levels you want, and which you don't)
+Location / remote: (e.g. remote, hybrid or on-site; which cities; how many office days are OK)
+Employment type: (e.g. full-time, contract)
 
 Compensation:
-- Base salary required, $XXXk+ base.
-- Salary + equity is great.
-- Equity-only (common at early startups) does NOT count — exclude.
+- (e.g. minimum base salary $XXXk; whether equity-only offers count)
 
-Company preferences: (stage, size, industry — e.g. Series B+ or public, 50+ employees, AI/devtools)
+Company preferences: (e.g. stage, size, industry)
 
 Nice to have: (anything that should raise the score)
 
 Don't show me:
-- Staffing / recruiting agencies
-- Roles requiring on-site 5 days a week in SF
-- Crypto / web3
+- (e.g. company types, industries or role types to exclude)
 
 Companies to watch (optional, one per line — their own career sites are searched directly):
-# Netflix
-# https://nvidia.wd5.myworkdayjobs.com/NVIDIAExternalCareerSite
-# greenhouse:anthropic
+# Acme Corp
+# https://acme.wd5.myworkdayjobs.com/External
+# greenhouse:acme
 
 """
 

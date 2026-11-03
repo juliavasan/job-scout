@@ -18,10 +18,10 @@ def test_tracking_params_stripped_but_ids_kept():
 
 
 def test_job_key_normalizes_company_title_location():
-    k1 = job_key("Acme, Inc.", "Sr. Solutions Engineer (Remote)", "Remote, US")
-    k2 = job_key("ACME", "Senior Solutions Engineer", "Anywhere")
+    k1 = job_key("Acme, Inc.", "Sr. Analytics Engineer (Remote)", "Remote, US")
+    k2 = job_key("ACME", "Senior Analytics Engineer", "Anywhere")
     assert k1 == k2
-    assert job_key("Acme", "Solutions Engineer", "New York, NY") != job_key("Acme", "Solutions Engineer", "San Francisco, CA")
+    assert job_key("Acme", "Analytics Engineer", "New York, NY") != job_key("Acme", "Analytics Engineer", "San Francisco, CA")
 
 
 def test_relative_dates():
@@ -46,19 +46,19 @@ def test_prefers_linkedin_apply_link():
 def test_rejects_other_employers_linkedin_link_and_strips_tracking():
     opts = [{"title": "LinkedIn", "link": "https://www.linkedin.com/jobs/view/senior-substation-project-manager-at-wsp-in-the-u-s-4472815594?utm_campaign=x"},
             {"title": "Trabajo", "link": "https://us.trabajo.org/job-1?utm_source=google_jobs_apply"},
-            {"title": "UHG Careers", "link": "https://careers.unitedhealthgroup.com/job/123?utm_medium=organic&id=9"}]
-    url, src, others = pick_best_url(opts, "", "UnitedHealth Group")
-    assert url == "https://careers.unitedhealthgroup.com/job/123?id=9"
+            {"title": "Umbrella Careers", "link": "https://careers.umbrellahealth.com/job/123?utm_medium=organic&id=9"}]
+    url, src, others = pick_best_url(opts, "", "Umbrella Health")
+    assert url == "https://careers.umbrellahealth.com/job/123?id=9"
     assert not any("linkedin" in o for o in others)
-    ok = "https://www.linkedin.com/jobs/view/senior-tpm-at-unitedhealth-group-4471234567"
-    assert pick_best_url([{"title": "LinkedIn", "link": ok}], "", "UnitedHealth Group")[0] == ok
+    ok = "https://www.linkedin.com/jobs/view/senior-data-engineer-at-umbrella-health-4471234567"
+    assert pick_best_url([{"title": "LinkedIn", "link": ok}], "", "Umbrella Health")[0] == ok
 
 
 def test_parse_serpapi_result():
     item = {
-        "title": "Forward Deployed Engineer", "company_name": "Acme", "location": "Anywhere",
+        "title": "Data Engineer", "company_name": "Acme", "location": "Anywhere",
         "description": "Build things.", "job_highlights": [{"title": "Qualifications", "items": ["Python"]}],
-        "detected_extensions": {"posted_at": "2 days ago", "salary": "180K–220K a year", "work_from_home": True},
+        "detected_extensions": {"posted_at": "2 days ago", "salary": "150K–190K a year", "work_from_home": True},
         "apply_options": [{"title": "LinkedIn", "link": "https://www.linkedin.com/jobs/view/987654321"},
                           {"title": "Acme", "link": "https://acme.com/jobs/1"}],
     }
@@ -75,55 +75,55 @@ def test_bad_location_falls_back_and_bad_query_is_isolated():
     class Src(SerpApiGoogleJobs):
         def _search(self, params):
             calls.append(params)
-            if params.get("location") == "Los Gatos, CA":
-                raise RuntimeError('SerpApi HTTP 400: {"error": "Unsupported `Los Gatos, CA` location - location parameter."}')
+            if params.get("location") == "Springfield, OR":
+                raise RuntimeError('SerpApi HTTP 400: {"error": "Unsupported `Springfield, OR` location - location parameter."}')
             if params["q"] == "boom":
                 raise RuntimeError("SerpApi HTTP 500")
-            return {"jobs_results": [{"title": "TPM", "company_name": "Netflix", "location": "Los Gatos, CA",
-                                      "apply_options": [{"title": "Netflix", "link": "https://jobs.netflix.com/1"}]}]}
+            return {"jobs_results": [{"title": "DE", "company_name": "Globex", "location": "Springfield, OR",
+                                      "apply_options": [{"title": "Globex", "link": "https://jobs.globex.com/1"}]}]}
 
     src = Src("k", max_queries=3, client=object())
-    jobs = src.fetch(SearchPlan(queries=[SearchQuery("tpm", "Los Gatos, CA"), SearchQuery("boom"), SearchQuery("tpm remote")]), 7)
+    jobs = src.fetch(SearchPlan(queries=[SearchQuery("de", "Springfield, OR"), SearchQuery("boom"), SearchQuery("de remote")]), 7)
     assert len(jobs) == 2 and len(src.errors) == 1
-    assert {"q": "tpm Los Gatos, CA"} in calls
+    assert {"q": "de Springfield, OR"} in calls
 
 
 def test_linkedin_resolve_order():
     from jobscout import linkedin
-    assert linkedin.resolve(None, "TPM", "Acme", "", ["https://www.linkedin.com/jobs/view/tpm-at-acme-4012345678?trk=x"]) == \
+    assert linkedin.resolve(None, "DE", "Acme", "", ["https://www.linkedin.com/jobs/view/data-engineer-at-acme-4012345678?trk=x"]) == \
         ("https://linkedin.com/jobs/view/4012345678", "posting")
-    url, kind = linkedin.resolve(None, "Senior TPM", "Acme Inc", "", ["https://acme.com/jobs/1"])
-    assert kind == "search" and url == "https://www.linkedin.com/jobs/search/?keywords=Senior+TPM+Acme"
-    assert linkedin.search_url("Remote - Senior Technical Program Manager", "NVIDIA Corporation") == \
-        "https://www.linkedin.com/jobs/search/?keywords=Senior+Technical+Program+Manager+NVIDIA"
-    assert linkedin.core_title("Senior Technical Program Manager, Services Operations - Remote") == "Senior Technical Program Manager"
-    assert linkedin.core_title("AI Product Manager, Content Platform Operations & Publishing") == "AI Product Manager"
-    assert linkedin.core_title("Senior Customer Technical Program Manager - AI Datacenter") == "Senior Customer Technical Program Manager"
+    url, kind = linkedin.resolve(None, "Senior DE", "Acme Inc", "", ["https://acme.com/jobs/1"])
+    assert kind == "search" and url == "https://www.linkedin.com/jobs/search/?keywords=Senior+DE+Acme"
+    assert linkedin.search_url("Remote - Senior Data Engineer", "Initech Corporation") == \
+        "https://www.linkedin.com/jobs/search/?keywords=Senior+Data+Engineer+Initech"
+    assert linkedin.core_title("Senior Data Engineer, Payments - Remote") == "Senior Data Engineer"
+    assert linkedin.core_title("Analytics Engineer, Content Platform Operations & Publishing") == "Analytics Engineer"
+    assert linkedin.core_title("Senior Platform Engineer - Data Infrastructure") == "Senior Platform Engineer"
 
     class FakeClaude: pass
     import jobscout.llm as L
     orig, orig_flag = L.find_linkedin_posting, linkedin.SEARCH_ENABLED
     linkedin.SEARCH_ENABLED = True
     try:
-        L.find_linkedin_posting = lambda c, t, co, loc: "https://www.linkedin.com/jobs/view/senior-tpm-at-other-co-4000000001"
-        assert linkedin.resolve(FakeClaude(), "Senior TPM", "Acme", "", [])[1] == "search"  # wrong employer rejected
-        L.find_linkedin_posting = lambda c, t, co, loc: "https://www.linkedin.com/jobs/view/senior-tpm-at-acme-4000000002"
-        assert linkedin.resolve(FakeClaude(), "Senior TPM", "Acme", "", []) == ("https://linkedin.com/jobs/view/4000000002", "found")
+        L.find_linkedin_posting = lambda c, t, co, loc: "https://www.linkedin.com/jobs/view/senior-data-engineer-at-other-co-4000000001"
+        assert linkedin.resolve(FakeClaude(), "Senior DE", "Acme", "", [])[1] == "search"  # wrong employer rejected
+        L.find_linkedin_posting = lambda c, t, co, loc: "https://www.linkedin.com/jobs/view/senior-data-engineer-at-acme-4000000002"
+        assert linkedin.resolve(FakeClaude(), "Senior DE", "Acme", "", []) == ("https://linkedin.com/jobs/view/4000000002", "found")
     finally:
         L.find_linkedin_posting, linkedin.SEARCH_ENABLED = orig, orig_flag
 
 
 def test_company_posting_helpers(monkeypatch):
     from jobscout import company_posting as cp
-    assert cp.is_company_url("https://jobs.nvidia.com/careers/job/1", "NVIDIA Corporation")
-    assert cp.is_company_url("https://nvidia.wd5.myworkdayjobs.com/en-US/NVIDIAExternalCareerSite/job/X", "NVIDIA")
+    assert cp.is_company_url("https://jobs.initech.com/careers/job/1", "Initech Corporation")
+    assert cp.is_company_url("https://initech.wd5.myworkdayjobs.com/en-US/InitechExternal/job/X", "Initech")
     assert cp.is_company_url("https://boards.greenhouse.io/acme/jobs/1", "Acme")
     assert not cp.is_company_url("https://boards.greenhouse.io/other/jobs/1", "Acme")
-    assert not cp.is_company_url("https://www.tealhq.com/job/x", "UnitedHealth Group")
+    assert not cp.is_company_url("https://www.tealhq.com/job/x", "Umbrella Health")
     assert not cp.is_company_url("https://www.linkedin.com/jobs/view/1", "Acme")
-    assert cp._title_match("Sr. Technical Program Manager (Remote)", "Senior Technical Program Manager")
+    assert cp._title_match("Sr. Data Engineer (Remote)", "Senior Data Engineer")
 
-    page = '<html><script type="application/ld+json">{"@context":"https://schema.org","@type":"JobPosting","title":"TPM","datePosted":"2026-10-27T08:00:00Z"}</script></html>'
+    page = '<html><script type="application/ld+json">{"@context":"https://schema.org","@type":"JobPosting","title":"DE","datePosted":"2026-10-27T08:00:00Z"}</script></html>'
 
     class R:
         status_code = 200
@@ -131,15 +131,15 @@ def test_company_posting_helpers(monkeypatch):
         text = page
     monkeypatch.setattr(cp._client, "get", lambda *a, **k: R())
     assert cp.date_posted_from_page("https://acme.com/jobs/1").isoformat() == "2026-10-27"
-    url, opened = cp.resolve("Acme", ["TPM"], ["https://indeed.com/x", "https://acme.com/jobs/123456"], None, None)
+    url, opened = cp.resolve("Acme", ["DE"], ["https://indeed.com/x", "https://acme.com/jobs/123456"], None, None)
     assert url == "https://acme.com/jobs/123456" and opened == "2026-10-27 (company page)"
 
 
 def test_looks_like_posting():
     from jobscout.company_posting import looks_like_posting as lp
-    t = ["Senior Technical Program Manager"]
-    assert not lp("https://www.sentinelone.com/jobs/", t)
-    assert not lp("https://careers.arrivia.com/travel-job-listings/?refresh=tY1cOTzFbn", t)
-    assert lp("https://jobs.nvidia.com/careers/job/893396034942", t)
-    assert lp("https://careers.unitedhealthgroup.com/job/18530540/senior-technical-project-manager-remote-remote/", t)
-    assert lp("https://acme.com/careers/senior-technical-program-manager", t)
+    t = ["Senior Data Engineer"]
+    assert not lp("https://www.cyberdyne.com/jobs/", t)
+    assert not lp("https://careers.travelco.com/job-listings/?refresh=abc123", t)
+    assert lp("https://jobs.initech.com/careers/job/893396034942", t)
+    assert lp("https://careers.umbrellahealth.com/job/18530540/senior-data-engineer-remote-remote/", t)
+    assert lp("https://acme.com/careers/senior-data-engineer", t)

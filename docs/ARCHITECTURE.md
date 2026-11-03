@@ -26,7 +26,7 @@ flowchart LR
 
     subgraph DRIVE["Google Drive — 'Job Scout' folder, shared with the service account only"]
         direction TB
-        subgraph P1["julia/"]
+        subgraph P1["alex/"]
             B1["Brief (Google Doc)<br/>search brief + learned exclusions"]
             R1["Resumes/ (optional)<br/>resumes already sent:<br/>Doc · PDF · docx · txt"]
             J1["Jobs (Google Sheet)<br/>Jobs · Log · _state tabs"]

@@ -50,7 +50,7 @@ class LLMError(RuntimeError):
 # ---------- schemas ----------
 
 class _Query(BaseModel):
-    q: str = Field(description="Google Jobs search text, e.g. 'forward deployed engineer remote'")
+    q: str = Field(description="Google Jobs search text, e.g. 'senior data engineer remote'")
     location: str = Field(description="City/state/country for the search, or empty string for none")
 
 
@@ -259,9 +259,9 @@ class Claude:
 # ---------- tasks ----------
 
 PLAN_SYSTEM = """You turn a job seeker's free-text search brief into Google Jobs searches.
-Write focused queries (role + key qualifier, e.g. 'forward deployed engineer AI remote').
+Write focused queries (role + key qualifier, e.g. 'senior data engineer fintech remote').
 One role family per query. Respect location/remote preferences from the brief
-(use `location` only for a major metro written like "San Jose, California" or "San Francisco Bay Area";
+(use `location` only for a major metro written like "Austin, Texas" or "Greater Boston";
 for small towns or specific companies' offices put the place in the query text instead; for remote, put 'remote'
 in the query text and leave location empty).
 Do not add salary numbers or exclusion words to queries.
@@ -269,7 +269,7 @@ If the brief has an "About me" section, use it only to pick the right seniority/
 If <resumes> are given, they are resumes this person has already sent out: also cover the role types those
 resumes are tailored to (similar titles, adjacent wording), as long as they don't conflict with the brief.
 The brief wins on any conflict.
-title_keywords: lowercase title substrings that identify relevant roles (e.g. 'forward deployed', 'solutions engineer')."""
+title_keywords: lowercase title substrings that identify relevant roles (e.g. 'data engineer', 'analytics engineer')."""
 
 
 MAX_RESUMES = 8

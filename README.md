@@ -83,7 +83,7 @@ Optional settings (env vars locally, or extra secrets/variables in CI), defaults
 ### 1. Install
 
 ```bash
-git clone https://github.com/juliavasan/job-scout && cd job-scout
+git clone https://github.com/<you>/job-scout && cd job-scout
 python3 -m venv .venv && source .venv/bin/activate
 pip install -e '.[dev]'
 cp .env.example .env
@@ -121,7 +121,7 @@ what you share with it. You can create it from your personal Google account or f
 
 1. In Google Drive, create a folder called **Job Scout**.
 2. **Share it** with the service account email as **Editor**, and untick "Notify people".
-3. Inside it, create **one subfolder per person** (e.g. `julia`, `alex`). The folder name is the profile name.
+3. Inside it, create **one subfolder per person** (e.g. `alex`, `sam`). The folder name is the profile name.
 4. In each person's subfolder, create:
    - a **Google Doc named `Brief`**. Paste the template from `python -m jobscout template` and fill it in.
    - an **empty Google Sheet named `Jobs`**.
@@ -138,8 +138,8 @@ what you share with it. You can create it from your personal Google account or f
 ### 5. First run
 
 ```bash
-python -m jobscout run --profile julia --dry-run   # prints what it would add; writes nothing
-python -m jobscout run --profile julia             # writes to the sheet
+python -m jobscout run --profile alex --dry-run    # prints what it would add; writes nothing
+python -m jobscout run --profile alex              # writes to the sheet
 python -m jobscout run --profile all
 ```
 
@@ -185,12 +185,12 @@ recruiter friend. The template's sections:
 - **Target roles.** List the actual titles, and also say what the work is ("customer-facing engineering, building
   with customers' data"). Claude also turns this section into the search queries.
 - **Seniority, location / remote, employment type.** Be specific: "Remote (US), or hybrid ≤2 days in SF".
-- **Compensation.** State hard rules explicitly. For example: *"Base salary required, $180k+. Salary + equity is
+- **Compensation.** State hard rules explicitly. For example: *"Base salary required, $150k+. Salary + equity is
   great. Equity-only does NOT count — exclude."* A posting that doesn't list a salary is kept and flagged in Concerns,
   not dropped. A posted range whose top is below your minimum is excluded.
 - **Company preferences.** Stage, size, industry, and anything that should raise the score.
 - **Don't show me.** Hard exclusions, one per line: "staffing agencies", "on-site 5 days in SF", "crypto".
-- **Companies to watch (optional).** One company per line: a name like `Netflix`, a careers URL, or `greenhouse:slug`.
+- **Companies to watch (optional).** One company per line: a name like `Acme Corp`, a careers URL, or `greenhouse:slug`.
   Their own career sites are searched directly on every run (see Sources). Lines starting with `#` are ignored.
 
 Tips:
@@ -231,7 +231,7 @@ these three columns.
 ## Resume library
 
 Put a `Resumes` subfolder in a person's folder and drop in the resumes they've already sent, e.g.
-`FDE - AI startups.pdf`, `Solutions Engineer.docx`, `TPM - platform` (Google Doc). On each run:
+`Data Engineer - fintech.pdf`, `Analytics Engineer.docx`, `Platform Engineer` (Google Doc). On each run:
 
 - **Search:** the queries also cover the role types those resumes are tailored to (the brief still wins on conflicts).
 - **Judging:** each job is compared with the best-matching resume. "Why it fits" cites that resume's experience, and
@@ -265,7 +265,7 @@ A posting is skipped if any of these is true (rows in **"Jobs archive …"** tab
 1. Its canonical URL is already in the sheet. Tracking parameters are stripped, and LinkedIn URLs are reduced to
    `linkedin.com/jobs/view/<id>`. Every apply link of a posting is checked, so the same job reached through LinkedIn and
    through the company's site still matches.
-2. Its normalized **company + title + location** is already in the sheet ("Acme, Inc. / Sr. Solutions Engineer (Remote)" = "ACME / Senior Solutions Engineer / Anywhere").
+2. Its normalized **company + title + location** is already in the sheet ("Acme, Inc. / Sr. Data Engineer (Remote)" = "ACME / Senior Data Engineer / Anywhere").
 3. Its company + title matches a row you marked `Not a fit`.
 4. It was already judged and rejected in an earlier run (recorded in `_state`, so it isn't paid for twice).
 
@@ -289,7 +289,7 @@ A posting is skipped if any of these is true (rows in **"Jobs archive …"** tab
 | Source | What it does |
 |---|---|
 | `SerpApiGoogleJobs` | Google for Jobs: LinkedIn, Indeed, Glassdoor, Built In and company career pages. About 4 searches per run, postings from the last 7 days. |
-| `CompanySites` | Searches the **companies' own career sites** for your target roles. Companies come from the brief's "Companies to watch" section, one per line: a company name (`Netflix`), a careers URL (`https://nvidia.wd5.myworkdayjobs.com/NVIDIAExternalCareerSite`), or `greenhouse:slug` / `lever:slug` / `ashby:slug`. Supports Workday, Eightfold, Greenhouse, Lever, Ashby and SmartRecruiters. Jobs found this way come with the exact company URL, date opened and full description. Up to `JOBSCOUT_PER_COMPANY` (5, newest first) new postings per company per run, opened within `JOBSCOUT_WATCH_MAX_AGE_DAYS` (90). Jobs already in the sheet or already rejected are skipped first, so older good roles get their turn on later runs. |
+| `CompanySites` | Searches the **companies' own career sites** for your target roles. Companies come from the brief's "Companies to watch" section, one per line: a company name (`Acme Corp`), a careers URL (`https://acme.wd5.myworkdayjobs.com/External`), or `greenhouse:slug` / `lever:slug` / `ashby:slug`. Supports Workday, Eightfold, Greenhouse, Lever, Ashby and SmartRecruiters. Jobs found this way come with the exact company URL, date opened and full description. Up to `JOBSCOUT_PER_COMPANY` (5, newest first) new postings per company per run, opened within `JOBSCOUT_WATCH_MAX_AGE_DAYS` (90). Jobs already in the sheet or already rejected are skipped first, so older good roles get their turn on later runs. |
 
 To add a source, subclass `jobscout.sources.base.Source`, implement `fetch(plan, max_age_days) -> list[RawJob]`, and add it in `cli.py`.
 
@@ -327,7 +327,7 @@ Optional limits (env vars / secrets): `JOBSCOUT_MAX_NEW_ROWS` (25), `JOBSCOUT_MA
 - **`logs/runs.log`** (local only, gitignored): one line per local run, with more detail: SerpApi searches used, Claude calls and tokens,
   web searches, estimated cost, and duration. For example:
   ```
-  2026-11-02 21:46 UTC | JV | run | found 16 | added 5 | dup 0 | excluded 11 | over cap 0 | learned 0 | errors 0 | serpapi 5 | claude 22 calls, 47.3k in / 7.0k out, 9 web searches, ~$0.27 | 81s
+  2026-11-02 21:46 UTC | alex | run | found 16 | added 5 | dup 0 | excluded 11 | over cap 0 | learned 0 | errors 0 | serpapi 5 | claude 22 calls, 47.3k in / 7.0k out, 9 web searches, ~$0.27 | 81s
   ```
   The cost is an estimate from token counts and list prices. Change the location with `JOBSCOUT_RUN_LOG`.
 
@@ -347,5 +347,5 @@ Optional limits (env vars / secrets): `JOBSCOUT_MAX_NEW_ROWS` (25), `JOBSCOUT_MA
 
 ```bash
 pytest -q                                              # unit + end-to-end pipeline tests (fake Drive, fake Claude)
-python -m jobscout -v run --profile julia --dry-run
+python -m jobscout -v run --profile alex --dry-run
 ```

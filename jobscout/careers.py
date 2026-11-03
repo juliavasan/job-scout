@@ -36,7 +36,7 @@ NOT_ON_SITE = "not listed on company site (may be closed)"
 NOT_FOUND = "not found"
 
 _http = httpx.Client(timeout=20, follow_redirects=True,
-                     headers={"User-Agent": "Mozilla/5.0 (compatible; job-scout/0.1; +https://github.com/juliavasan/job-scout)",
+                     headers={"User-Agent": "Mozilla/5.0 (compatible; job-scout/0.1)",
                               "Accept": "application/json, text/html;q=0.9"})
 
 
@@ -456,7 +456,7 @@ class LinkResolver:
                 out.notes.append(f"{ats.kind} search unavailable")
 
         # 5) fall back to a company-domain link from the apply options: verified, or (for sites that block
-        #    automated requests, e.g. metacareers.com) trusted because Google Jobs listed it for this job
+        #    automated requests, e.g. JavaScript-only career pages) trusted because Google Jobs listed it for this job
         if out.company_url == NOT_FOUND:
             blocked = ""
             for u in urls:

@@ -55,7 +55,7 @@ def validate_brief(brief: str) -> None:
     body = _LEARNED_RE.split(brief)[0].strip()
     if len(body) < 40:
         raise ConfigError("the Brief doc is empty or too short — write your search brief there first")
-    if "$XXXk" in body or "(e.g. Forward Deployed" in body:
+    if "$XXXk" in body or "(e.g. the job titles you want" in body:
         raise ConfigError("the Brief doc still contains the template placeholders — fill it in first")
 
 
@@ -175,7 +175,7 @@ def run_profile(
     seen_keys = {job_key(r.get("Company", ""), r.get("Job title", ""), r.get("Location", "")) for r in history}
     not_fit = {company_title_key(r.get("Company", ""), r.get("Job title", "")) for r in rows if r.get("_not_fit")}
     rejected = {s["Key"] for s in state if s.get("Kind") == STATE_REJECTED}
-    # company+title -> location words seen, to catch "Santa Clara" vs "Santa Clara (Flexible or Remote)"
+    # company+title -> location words seen, to catch "Springfield" vs "Springfield (Flexible or Remote)"
     seen_ct: dict[str, set[str]] = {}
     for r in history:
         seen_ct.setdefault(company_title_key(r.get("Company", ""), r.get("Job title", "")), set()).update(_loc_words(r.get("Location", "")))

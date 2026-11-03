@@ -110,7 +110,7 @@
   <text x="60" y="452" font-size="16" font-weight="700" fill="#713f12">🔁 It learns from you</text>
   <text x="60" y="480" font-size="14" fill="#854d0e">Tick <tspan font-weight="700">Ignore</tspan> (or highlight a row orange) → the next run asks</text>
   <text x="60" y="501" font-size="14" fill="#854d0e">Claude <tspan font-style="italic">why</tspan> it's not a fit and adds a dated rule to your Brief,</text>
-  <text x="60" y="522" font-size="14" fill="#854d0e">e.g. "Exclude roles that need security expertise".</text>
+  <text x="60" y="522" font-size="14" fill="#854d0e">e.g. "Exclude roles that are mostly sales".</text>
   <text x="60" y="550" font-size="14" fill="#854d0e">Ignored jobs never come back. Rules stay readable and editable.</text>
 
   <!-- footer -->

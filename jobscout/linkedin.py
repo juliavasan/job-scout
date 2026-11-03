@@ -48,7 +48,7 @@ _CO_SUFFIX = re.compile(r",?\s+(inc\.?|incorporated|corp\.?|corporation|llc|ltd\
 
 
 def core_title(title: str) -> str:
-    """'Senior TPM, Services Operations - Remote' -> 'Senior TPM'. LinkedIn search needs every keyword to match,
+    """'Senior Data Engineer, Payments - Remote' -> 'Senior Data Engineer'. LinkedIn search needs every keyword to match,
     so long titles with team names usually return no results."""
     t = re.sub(r"\([^)]*\)", " ", title)
     t = _NOISE.sub(" ", t).strip(" -–|")

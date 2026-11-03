@@ -2,9 +2,9 @@
 
 Companies come from the "Companies to watch" section of the brief, one per line, in any of these forms:
 
-    Netflix                                         <- a name: the careers system is found automatically (and cached)
-    https://nvidia.wd5.myworkdayjobs.com/NVIDIAExternalCareerSite   <- a careers/ATS URL
-    greenhouse:anthropic   lever:mistral   ashby:openai               <- explicit public boards
+    Acme Corp                                       <- a name: the careers system is found automatically (and cached)
+    https://acme.wd5.myworkdayjobs.com/External     <- a careers/ATS URL
+    greenhouse:acme   lever:acme   ashby:acme       <- explicit public boards
 
 Supported careers systems: Workday, Eightfold, Greenhouse, Lever, Ashby, SmartRecruiters.
 Each company's site is searched for the brief's role keywords; matches come with the exact company URL,

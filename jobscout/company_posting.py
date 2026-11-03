@@ -33,7 +33,7 @@ JOB_BOARDS = ("linkedin.", "indeed.", "glassdoor.", "ziprecruiter.", "monster.",
               "jobleads", "mediabistro", "remotesource", "univision", "learn4good", "careerbuilder", "theladders", "hiring.cafe")
 
 _client = httpx.Client(timeout=15, follow_redirects=True,
-                       headers={"User-Agent": "Mozilla/5.0 (compatible; job-scout/0.1; +https://github.com/juliavasan/job-scout)"})
+                       headers={"User-Agent": "Mozilla/5.0 (compatible; job-scout/0.1)"})
 
 
 def _host(url: str) -> str:
