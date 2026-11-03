@@ -238,6 +238,8 @@ Rules:
   A posting that simply doesn't list salary is NOT a failure; note it in concerns.
 - If the brief has a minimum salary and the posted range's top end is below it, exclude.
 - Staffing/recruiting agencies posting on behalf of an unnamed client count as agencies.
+- The brief may define several target tracks (e.g. big tech vs. startups). A strong match on any one track is a
+  strong match; don't penalize a job for not fitting the other track.
 - fit_score combines (a) how well the job matches what they want and (b) how well their background
   matches what the job requires: 9-10 near-perfect on both, 7-8 strong, 5-6 plausible with caveats, <=4 weak.
 - Using "About me": if the posting has a hard requirement they clearly lack (e.g. a security clearance,
