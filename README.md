@@ -7,6 +7,16 @@ their own folder, brief and sheet.
 
 ![Job Scout architecture](docs/architecture.svg)
 
+| Block | Technologies |
+|---|---|
+| ⏰ **Schedule** | GitHub Actions, daily at 6 AM PT; GitHub Secrets for keys and tokens |
+| 🐍 **The agent** | `jobscout`, Python 3.11 (httpx, gspread, pydantic): read brief + feedback → search → skip duplicates → judge with Claude → find company link + date → add rows |
+| 🔎 **Job sources** | SerpApi → Google Jobs (LinkedIn / Indeed / Glassdoor listings, no login); company career sites searched directly: Workday, Eightfold, Greenhouse, Lever, Ashby, SmartRecruiters |
+| 🧠 **AI: Claude** | Claude Code on your subscription (Anthropic API as fallback): Sonnet 5.5 scores each job 1–10 against your brief + resumes; Haiku 5.5 turns the brief into searches; JSON output validated with Pydantic |
+| 📁 **Google Drive** | One folder per person: Brief (Doc), Jobs (Sheet with Applied / Ignore checkboxes), Resumes, Log; a service account with access to this folder only |
+| 👩‍💻 **You** | Edit the brief, tick Applied / Ignore, from phone or laptop |
+| 🔁 **Learns from you** | Ignore (or an orange highlight) → the next run adds a dated rule to your Brief; ignored jobs never come back |
+
 More detail (flows, data model, design notes): [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
 
 - **No LinkedIn login, no cookies, no scraping.** LinkedIn postings come in through Google for Jobs
