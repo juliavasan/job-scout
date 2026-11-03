@@ -40,6 +40,7 @@ class RunReport:
     errors: list[str] = field(default_factory=list)
     rows: list[list[str]] = field(default_factory=list)
     excluded_samples: list[tuple[str, str, str]] = field(default_factory=list)  # (title, company, reason) for dry-run output
+    raw_jobs: list = field(default_factory=list)  # everything the sources returned (saved locally for --replay)
 
     def log_row(self) -> list:
         return [
@@ -81,7 +82,11 @@ def run_profile(
     sources: list[Source],
     dry_run: bool = False,
     resolver: LinkResolver | None = None,
+    replay: bool = False,
 ) -> RunReport:
+    """replay=True: re-judge previously fetched postings (sources are replay sources) against the current brief,
+    ignoring the sheet's history so every posting is judged again. Always a dry run."""
+    dry_run = dry_run or replay
     rep = RunReport(profile=profile.name)
     day = datetime.now(LOCAL_TZ).date().isoformat()
 
@@ -98,18 +103,26 @@ def run_profile(
     state = store.read_state()
 
     # 1) Feedback loop -> learned exclusions
+    #    Signals: Status = "Not a fit" (with or without a reason) or a row highlighted orange/red.
+    flagged = getattr(store, "read_flagged_rows", lambda: set())()
     processed = {s["Key"] for s in state if s.get("Kind") == STATE_FEEDBACK}
     pending, pending_keys = [], []
     for r in rows:
         fb = (r.get("My feedback") or "").strip()
-        if (r.get("Status") or "").strip() == NOT_A_FIT and fb:
+        is_flagged = r.get("_row") in flagged
+        if (r.get("Status") or "").strip() == NOT_A_FIT or is_flagged:
+            r["_not_fit"] = True
+            if not fb:
+                fb = "(highlighted / marked not for me, no reason written)"
             key = "|".join(_row_keys(r)) + "|" + fb[:200]  # new/edited feedback on the same row counts as new
             if key not in processed:
                 pending.append({"title": r.get("Job title", ""), "company": r.get("Company", ""),
-                                "location": r.get("Location", ""), "feedback": fb})
+                                "location": r.get("Location", ""), "work_mode": r.get("Work mode", ""),
+                                "why": r.get("Why it fits", ""), "concerns": r.get("Concerns / red flags", ""),
+                                "industry": r.get("Company type / industry", ""), "feedback": fb})
                 pending_keys.append(key)
     state_rows: list[list[str]] = []
-    if pending:
+    if pending and not replay:
         try:
             rep.learned = L.learn_exclusions(claude, brief, pending)
             if rep.learned:
@@ -139,18 +152,22 @@ def run_profile(
             rep.errors.append(f"{src.name}: {type(e).__name__}: {str(e)[:150]}")
             log.warning("[%s] source %s failed: %s", profile.name, src.name, type(e).__name__)
     rep.found = len(raw)
+    rep.raw_jobs = raw
 
     # 3) Dedup (URL first, then company+title+location; also anything marked Not a fit or rejected before)
-    seen_urls = {u for r in rows if (u := canonical_url(r.get("Job URL", "")))}
-    seen_keys = {job_key(r.get("Company", ""), r.get("Job title", ""), r.get("Location", "")) for r in rows}
-    not_fit = {company_title_key(r.get("Company", ""), r.get("Job title", "")) for r in rows
-               if (r.get("Status") or "").strip() == NOT_A_FIT}
+    seen_urls = set() if replay else {u for r in rows if (u := canonical_url(r.get("Job URL", "")))}
+    seen_keys = set() if replay else {job_key(r.get("Company", ""), r.get("Job title", ""), r.get("Location", "")) for r in rows}
+    not_fit = {company_title_key(r.get("Company", ""), r.get("Job title", "")) for r in rows if r.get("_not_fit")}
     rejected = {s["Key"] for s in state if s.get("Kind") == STATE_REJECTED}
     candidates: list[RawJob] = []
     for job in raw:
         urls = {canonical_url(u) for u in job.all_urls()} - {""}
         key = job_key(job.company, job.title, job.location)
-        if urls & seen_urls or key in seen_keys or company_title_key(job.company, job.title) in not_fit \
+        if replay:
+            if urls & seen_urls or key in seen_keys:  # only dedup within the replayed batch
+                rep.skipped_dup += 1
+                continue
+        elif urls & seen_urls or key in seen_keys or company_title_key(job.company, job.title) in not_fit \
                 or urls & rejected or key in rejected:
             rep.skipped_dup += 1
             continue
@@ -211,6 +228,8 @@ def run_profile(
         except Exception as e:
             return c, UNKNOWN_FACTS, f"{type(e).__name__}: {str(e)[:120]}"
 
+    if replay:
+        todo = {}  # tuning run: skip paid company research
     with ThreadPoolExecutor(WORKERS) as pool:
         for c, facts, err in pool.map(_facts, todo.items()):
             known[c] = facts

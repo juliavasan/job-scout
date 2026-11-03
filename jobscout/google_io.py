@@ -401,7 +401,33 @@ class DriveProfileStore:
         if not values:
             return []
         header = values[0]
-        return [dict(zip(header, row + [""] * (len(header) - len(row)))) for row in values[1:] if any(c.strip() for c in row)]
+        out = []
+        for n, row in enumerate(values[1:], start=2):
+            if any(c.strip() for c in row):
+                d = dict(zip(header, row + [""] * (len(header) - len(row))))
+                d["_row"] = n
+                out.append(d)
+        return out
+
+    def read_flagged_rows(self) -> set[int]:
+        """Sheet row numbers you highlighted orange/red (any cell) = "not for me", even without a written reason."""
+        r = self.drive.http.get(f"https://sheets.googleapis.com/v4/spreadsheets/{self.files.sheet['id']}",
+                                params={"ranges": f"{TAB_JOBS}!A2:{gspread.utils.rowcol_to_a1(1, len(JOBS_COLUMNS))[:-1]}5000",
+                                        "includeGridData": "true",
+                                        "fields": "sheets(data(startRow,rowData(values(effectiveFormat/backgroundColorStyle))))"})
+        if r.status_code != 200:
+            return set()
+        flagged = set()
+        for data in r.json().get("sheets", [{}])[0].get("data", []):
+            start = data.get("startRow", 1)
+            for i, row in enumerate(data.get("rowData", [])):
+                for v in row.get("values", []):
+                    c = ((v.get("effectiveFormat") or {}).get("backgroundColorStyle") or {}).get("rgbColor") or {}
+                    red, green, blue = c.get("red", 0), c.get("green", 0), c.get("blue", 0)
+                    if red >= 0.8 and green <= 0.75 and blue <= 0.45:  # orange / red / dark-orange fills
+                        flagged.add(start + i + 1)
+                        break
+        return flagged
 
     def append_jobs(self, rows: list[list[str]]) -> None:
         if rows:

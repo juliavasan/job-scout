@@ -6,8 +6,13 @@ prefer the LinkedIn apply link as the row URL when one exists.
 """
 from __future__ import annotations
 
+import hashlib
+import json
 import logging
+import os
 import re
+import time
+from pathlib import Path
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 import httpx
@@ -125,9 +130,26 @@ class SerpApiGoogleJobs(Source):
         self.pages_per_query = pages_per_query
         self.client = client or httpx.Client(timeout=60)
         self.searches_used = 0
+        self.cache_hits = 0
         self.errors: list[str] = []
 
+    # Local cache so re-running/tuning on your Mac doesn't spend SerpApi credits. Off in CI.
+    CACHE_DIR = None if os.environ.get("GITHUB_ACTIONS") == "true" else Path(os.environ.get("JOBSCOUT_SERP_CACHE", ".cache/serpapi"))
+    CACHE_HOURS = float(os.environ.get("JOBSCOUT_SERP_CACHE_HOURS", "20"))
+
     def _search(self, params: dict) -> dict:
+        key = hashlib.sha256(json.dumps(params, sort_keys=True).encode()).hexdigest()[:24]
+        path = self.CACHE_DIR / f"{key}.json" if self.CACHE_DIR else None
+        if path and path.exists() and time.time() - path.stat().st_mtime < self.CACHE_HOURS * 3600:
+            self.cache_hits += 1
+            return json.loads(path.read_text())
+        data = self._search_live(params)
+        if path:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(json.dumps(data))
+        return data
+
+    def _search_live(self, params: dict) -> dict:
         self.searches_used += 1
         r = self.client.get(ENDPOINT, params={**params, "engine": "google_jobs", "api_key": self.api_key, "hl": "en", "gl": "us"})
         if r.status_code >= 400:
@@ -180,5 +202,5 @@ class SerpApiGoogleJobs(Source):
                 log.warning("serpapi query failed: %s", type(e).__name__)
         if self.errors and not out:
             raise RuntimeError("; ".join(self.errors))
-        log.info("serpapi: %d searches, %d recent postings", self.searches_used, len(out))
+        log.info("serpapi: %d searches (+%d from local cache), %d recent postings", self.searches_used, self.cache_hits, len(out))
         return out

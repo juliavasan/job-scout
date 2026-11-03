@@ -182,7 +182,7 @@ What you'll see in the columns:
   The agent never logs in to or opens LinkedIn. Many companies don't post every job on LinkedIn, and LinkedIn keeps many
   postings out of Google, so `not found` is common.
 
-**SerpApi budget:** the extra lookups (step 2) are limited by `JOBSCOUT_MAX_LOOKUPS` (default 5 per person per run). They're
+**SerpApi budget:** the extra lookups (step 2) are off by default. Set `JOBSCOUT_MAX_LOOKUPS` (e.g. 3) to enable them. They're
 skipped entirely when fewer than `JOBSCOUT_SERPAPI_RESERVE` (default 40) searches are left this month, so the daily search
 always keeps working. With two people, the free plan (250/month) runs short. SerpApi Starter ($25/month, 1,000 searches) covers it.
 
@@ -207,6 +207,8 @@ of a few resumes adds little cost.
 ## How feedback works
 
 1. In the **Jobs** tab, set **Status** to `Not a fit` and write a reason in **My feedback**, e.g. `too sales-heavy`, `no agencies`.
+   Or just **highlight the row orange/red**. It counts as "not for me" even without a reason, and Claude works out the most
+   likely reason from the job itself (for example "needs security expertise" or "hybrid in San Francisco").
 2. On the next run, before searching, the agent reads every `Not a fit` row with feedback it hasn't seen yet. Claude turns
    that feedback into short, general rules (merging duplicates and skipping anything your brief already covers) and
    **appends** them, dated, to the end of your Brief doc:
@@ -277,6 +279,18 @@ Optional limits (env vars / secrets): `JOBSCOUT_MAX_NEW_ROWS` (25), `JOBSCOUT_MA
   2026-11-02 21:46 UTC | JV | run | found 16 | added 5 | dup 0 | excluded 11 | over cap 0 | learned 0 | errors 0 | serpapi 5 | claude 22 calls, 47.3k in / 7.0k out, 9 web searches, ~$0.27 | 81s
   ```
   The cost is an estimate from token counts and list prices. Change the location with `JOBSCOUT_RUN_LOG`.
+
+## Tuning without spending SerpApi credits
+
+- `python -m jobscout run --profile <name> --replay` re-judges the postings from the last local run against the **current
+  brief**, ignoring what's already in the sheet. It uses **0 SerpApi searches**, writes nothing, and skips company
+  research. It costs only Claude judging calls, a few cents per posting. Workflow: edit the brief, replay, check the
+  include/exclude reasons, repeat. Each local run saves its postings to `logs/candidates_<name>.json` (gitignored).
+- Local runs cache SerpApi responses for 20 hours in `.cache/serpapi/` (gitignored; `JOBSCOUT_SERP_CACHE_HOURS`), so
+  repeating a search doesn't spend credits. GitHub Actions runs never use the cache.
+- The per-job link lookups (an extra Google Jobs search per job, for LinkedIn and company links) are **off by default**
+  (`JOBSCOUT_MAX_LOOKUPS=0`). Company links come from career-site searches, which are free.
+- Budget: about 4 searches per person per run, so two people use about 240 of the free plan's 250 a month.
 
 ## Development
 

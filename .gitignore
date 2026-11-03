@@ -23,7 +23,9 @@ __pycache__/
 build/
 dist/
 
-# --- local output ---
+# --- local output (personal job data: never commit) ---
+logs/
+.cache/
 *.log
 out/
 .DS_Store

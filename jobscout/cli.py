@@ -65,12 +65,43 @@ def format_run_line(when: datetime, name: str, mode: str, rep=None, searches: in
     if failure:
         return f"{head} | FAILED: {failure}"
     u = usage or {}
-    added = "would add" if mode == "dry-run" else "added"
+    added = "would add" if mode in ("dry-run", "replay") else "added"
     return (f"{head} | found {rep.found} | {added} {rep.added} | dup {rep.skipped_dup} | excluded {rep.skipped_excluded}"
             f" | over cap {rep.skipped_over_cap} | learned {len(rep.learned)} | errors {len(rep.errors)}"
             f" | serpapi {searches} | claude {u.get('calls', 0)} calls, {u.get('input_tokens', 0)/1000:.1f}k in /"
             f" {u.get('output_tokens', 0)/1000:.1f}k out, {u.get('web_searches', 0)} web searches, ~${u.get('cost_usd', 0):.2f}"
             f" | {seconds:.0f}s")
+
+
+CANDIDATES_DIR = Path(os.environ.get("JOBSCOUT_CANDIDATES_DIR", "logs"))
+
+
+def save_candidates(name: str, raw_jobs: list) -> None:
+    """Keep the postings this run fetched (local only) so `run --replay` can re-judge them for free."""
+    if IN_CI or not raw_jobs:
+        return
+    import dataclasses
+    import json
+
+    CANDIDATES_DIR.mkdir(parents=True, exist_ok=True)
+    rows = [{**dataclasses.asdict(j), "posted_date": j.posted_date.isoformat() if j.posted_date else None} for j in raw_jobs]
+    (CANDIDATES_DIR / f"candidates_{name}.json").write_text(json.dumps(rows, indent=1))
+
+
+def load_candidates(name: str) -> list:
+    import json
+    from datetime import date as _date
+
+    from .models import RawJob
+
+    path = CANDIDATES_DIR / f"candidates_{name}.json"
+    if not path.exists():
+        raise ConfigError(f"nothing to replay for {name!r}: run once without --replay first ({path} missing)")
+    out = []
+    for d in json.loads(path.read_text()):
+        d["posted_date"] = _date.fromisoformat(d["posted_date"]) if d.get("posted_date") else None
+        out.append(RawJob(**d))
+    return out
 
 
 def run_log_row(when: datetime, mode: str, rep=None, searches: int = 0, usage: dict | None = None,
@@ -153,7 +184,7 @@ def cmd_run(args) -> int:
         p = Profile.from_env(label, folder_id)
         store = None
         started, t0 = datetime.now(timezone.utc), time.monotonic()
-        mode = "dry-run" if args.dry_run else "run"
+        mode = "replay" if args.replay else ("dry-run" if args.dry_run else "run")
         claude, sources = None, []
         try:
             files, _ = setup_profile(drive, name, folder_id)
@@ -162,12 +193,30 @@ def cmd_run(args) -> int:
             resolver = make_resolver(serp_key, claude)
             resolver.cache.update({st["Key"]: st.get("Value", "") for st in store.read_state()
                                    if st.get("Kind") == "ats" and st.get("Value")})
-            sources = [SerpApiGoogleJobs(serp_key, p.max_queries, p.pages_per_query), CompanySites(resolver)]
-            rep = run_profile(p, store, claude, sources, dry_run=args.dry_run, resolver=resolver)
+            serp_source = SerpApiGoogleJobs(serp_key, p.max_queries, p.pages_per_query)
+            if args.replay:
+                from .sources.base import Source as _Src
+
+                class Replay(_Src):
+                    name = "replay"
+
+                    def __init__(self, jobs):
+                        self.jobs = jobs
+
+                    def fetch(self, plan, max_age_days):
+                        return list(self.jobs)
+
+                sources = [serp_source, Replay(load_candidates(name))]
+                serp_source.max_queries = 0  # no searches at all
+                rep = run_profile(p, store, claude, sources, replay=True)
+            else:
+                sources = [serp_source, CompanySites(resolver)]
+                rep = run_profile(p, store, claude, sources, dry_run=args.dry_run, resolver=resolver)
+                save_candidates(name, rep.raw_jobs)
         except Exception as e:  # isolate profiles from each other
             failures += 1
             write_run_log(format_run_line(started, name, mode, failure=f"{type(e).__name__}: {str(e)[:200]}"))
-            if store is not None and not args.dry_run:
+            if store is not None and not (args.dry_run or args.replay):
                 try:
                     store.append_run_log(run_log_row(started, mode, usage=claude.usage if claude else None,
                                                      searches=sources[0].searches_used if sources else 0,
@@ -175,7 +224,7 @@ def cmd_run(args) -> int:
                 except Exception:
                     pass
             logging.error("[%s] run failed: %s: %s", label, type(e).__name__, "" if IN_CI else str(e)[:300])
-            if store is not None and not args.dry_run:
+            if store is not None and not (args.dry_run or args.replay):
                 try:
                     store.append_log(["", "", "", "", "", "", "", f"run failed: {type(e).__name__}: {str(e)[:300]}"])
                 except Exception:
@@ -184,13 +233,13 @@ def cmd_run(args) -> int:
         seconds = time.monotonic() - t0
         write_run_log(format_run_line(started, name, mode, rep, searches=sources[0].searches_used + resolver.serp.searches_used,
                                       usage=claude.usage, seconds=seconds))
-        if not args.dry_run:
+        if not (args.dry_run or args.replay):
             try:
                 store.append_run_log(run_log_row(started, mode, rep, sources[0].searches_used + resolver.serp.searches_used,
                                                  claude.usage, seconds))
             except Exception as e:
                 logging.warning("[%s] could not write the Log sheet: %s", label, type(e).__name__)
-        if args.dry_run:
+        if args.dry_run or args.replay:
             if IN_CI:
                 print(f"[{label}] dry run: would add {rep.added} (details hidden in CI logs)")
             else:
@@ -229,7 +278,7 @@ def make_resolver(serp_key: str, claude):
     from .sources import SerpApiGoogleJobs
 
     serp = SerpApiGoogleJobs(serp_key, max_queries=0)
-    return LinkResolver(serp=serp, claude=claude, max_lookups=_lookup_budget(serp_key, _int("JOBSCOUT_MAX_LOOKUPS", 5)))
+    return LinkResolver(serp=serp, claude=claude, max_lookups=_lookup_budget(serp_key, _int("JOBSCOUT_MAX_LOOKUPS", 0)))
 
 
 def cmd_backfill_links(args) -> int:
@@ -305,6 +354,8 @@ def main(argv: list[str] | None = None) -> int:
     r = sub.add_parser("run", help="search, judge and append new jobs")
     r.add_argument("--profile", required=True, help="person's folder name, or 'all'")
     r.add_argument("--dry-run", action="store_true", help="print what would be added; write nothing")
+    r.add_argument("--replay", action="store_true",
+                   help="re-judge the postings from the last local run against the current brief: 0 SerpApi searches, writes nothing")
     r.set_defaults(func=cmd_run)
 
     b = sub.add_parser("backfill-links", help="re-find company job URL, date opened and LinkedIn URL for existing rows")
