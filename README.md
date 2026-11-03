@@ -111,7 +111,9 @@ python -m jobscout run --profile all
 Add four repository secrets: **Settings → Secrets and variables → Actions**, or from a terminal:
 
 ```bash
-gh secret set ANTHROPIC_API_KEY
+claude setup-token                      # optional: prints a long-lived token for your Claude subscription
+gh secret set CLAUDE_CODE_OAUTH_TOKEN   # paste it; cloud runs then use the subscription instead of API credit
+gh secret set ANTHROPIC_API_KEY         # used only when CLAUDE_CODE_OAUTH_TOKEN isn't set
 gh secret set SERPAPI_API_KEY
 gh secret set GOOGLE_SERVICE_ACCOUNT_JSON < secrets/service-account.json
 gh secret set JOBSCOUT_ROOT_FOLDER_ID

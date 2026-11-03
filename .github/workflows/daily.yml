@@ -36,8 +36,19 @@ jobs:
           python-version: "3.11"
           cache: pip
       - run: pip install .
+      - name: Install Claude Code (uses your Claude subscription instead of API credit)
+        env:
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+        run: |
+          if [ -n "$CLAUDE_CODE_OAUTH_TOKEN" ]; then
+            curl -fsSL https://claude.ai/install.sh | bash
+            echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          else
+            echo "No CLAUDE_CODE_OAUTH_TOKEN secret: falling back to the Anthropic API key."
+          fi
       - name: Run
         env:
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           SERPAPI_API_KEY: ${{ secrets.SERPAPI_API_KEY }}
           GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
@@ -46,4 +57,6 @@ jobs:
           DRY_RUN: ${{ inputs.dry_run && '--dry-run' || '' }}
         # Each profile runs isolated; one failing profile doesn't stop the others.
         # Logs show counts only, with people shown as profile-1, profile-2 (this repo is public, so are its Actions logs).
-        run: python -m jobscout run --profile "$PROFILE" $DRY_RUN
+        run: |
+          if [ -n "$CLAUDE_CODE_OAUTH_TOKEN" ]; then export JOBSCOUT_LLM_BACKEND=claude-code; else export JOBSCOUT_LLM_BACKEND=api; fi
+          python -m jobscout run --profile "$PROFILE" $DRY_RUN
