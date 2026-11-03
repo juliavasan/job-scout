@@ -242,3 +242,13 @@ def test_same_company_title_with_remote_variant_is_duplicate():
     rep = pipeline.run_profile(P, store, DummyClaude(), [FakeSource([J("Strategic Partnerships, TPM", "Servicenow", loc="Santa Clara", url="https://b.com/2"),
                                                                    J("Strategic Partnerships, TPM", "ServiceNow", loc="London, UK", url="https://c.com/3")])])
     assert rep.skipped_dup == 1 and rep.added == 1  # Santa Clara copy is a duplicate; London is a different posting
+
+
+def test_ignore_checkbox_learns_and_never_readds(fake_llm):
+    store = FakeStore()
+    pipeline.run_profile(P, store, DummyClaude(), [FakeSource([J("Solutions Engineer", "Gamma", url="https://g.com/1")])])
+    store.jobs[1][JOBS_COLUMNS.index("Ignore")] = "TRUE"
+    store.jobs[1][JOBS_COLUMNS.index("My feedback")] = "too sales-heavy"
+    rep = pipeline.run_profile(P, store, DummyClaude(), [FakeSource([J("Solutions Engineer", "Gamma", loc="Remote", url="https://other.com/9")])])
+    assert rep.learned == ["Exclude sales-heavy roles"] and rep.added == 0
+    assert len(store.jobs) == 2  # never re-added, even from another site

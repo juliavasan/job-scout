@@ -8,6 +8,7 @@ from datetime import date
 # can add your own columns to the right without breaking anything.
 JOBS_COLUMNS = [
     "Applied",  # checkbox, yours to tick; the agent never sets it
+    "Ignore",   # checkbox: "not for me" -> never re-added, and the next run learns a rule from it
     "Date added",
     "Fit score (1–10)",
     "Job title",
@@ -39,6 +40,7 @@ JOBS_COLUMNS = [
 
 STATUS_VALUES = ["New", "Interested", "Applied", "Not a fit"]
 NOT_A_FIT = "Not a fit"
+CHECKBOX_COLUMNS = ["Applied", "Ignore"]
 
 LOG_COLUMNS = [
     "Run at (UTC)",

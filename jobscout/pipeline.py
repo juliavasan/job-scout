@@ -111,17 +111,18 @@ def run_profile(
     state = store.read_state()
 
     # 1) Feedback loop -> learned exclusions
-    #    Signals: Status = "Not a fit" (with or without a reason) or a row highlighted orange/red.
+    #    Signals: Ignore checkbox ticked, Status = "Not a fit" (with or without a reason), or a row highlighted orange/red.
     flagged = getattr(store, "read_flagged_rows", lambda: set())()
     processed = {s["Key"] for s in state if s.get("Kind") == STATE_FEEDBACK}
     pending, pending_keys = [], []
     for r in rows:
         fb = (r.get("My feedback") or "").strip()
         is_flagged = r.get("_row") in flagged
-        if (r.get("Status") or "").strip() == NOT_A_FIT or is_flagged:
+        ignored = (r.get("Ignore") or "").strip().upper() == "TRUE"
+        if (r.get("Status") or "").strip() == NOT_A_FIT or is_flagged or ignored:
             r["_not_fit"] = True
             if not fb:
-                fb = "(highlighted / marked not for me, no reason written)"
+                fb = "(marked Ignore / not for me, no reason written)"
             key = "|".join(_row_keys(r)) + "|" + fb[:200]  # new/edited feedback on the same row counts as new
             if key not in processed:
                 pending.append({"title": r.get("Job title", ""), "company": r.get("Company", ""),
@@ -291,7 +292,7 @@ def run_profile(
     for (job, j), (li_url, co_url, opened) in zip(accepted, link_info):
         f = known.get(normalize_company(job.company), UNKNOWN_FACTS)
         rep.rows.append([
-            "", day, str(j.fit_score), j.job_title or job.title, job.company, j.why_it_fits, j.concerns,
+            "", "", day, str(j.fit_score), j.job_title or job.title, job.company, j.why_it_fits, j.concerns,
             j.location or job.location, j.work_mode, j.employment_type, j.seniority, j.salary_range,
             j.equity_mentioned, job.posted_date.isoformat() if job.posted_date else "unknown",
             f.company_type_industry, f.size_employees, f.funding_stage_or_public, f.hq, f.one_line_description,

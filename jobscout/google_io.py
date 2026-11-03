@@ -28,7 +28,7 @@ from google.auth.transport.requests import AuthorizedSession
 from google.oauth2.service_account import Credentials
 
 from .models import (
-    JOBS_COLUMNS, LEARNED_HEADER, LOG_COLUMNS, RUNLOG_COLUMNS, RUNLOG_TAB, STATE_COLUMNS, STATUS_VALUES,
+    CHECKBOX_COLUMNS, JOBS_COLUMNS, LEARNED_HEADER, LOG_COLUMNS, RUNLOG_COLUMNS, RUNLOG_TAB, STATE_COLUMNS, STATUS_VALUES,
     TAB_JOBS, TAB_LOG, TAB_STATE,
 )
 
@@ -270,12 +270,13 @@ def ensure_sheet_layout(gc: gspread.Client, sheet_id: str) -> list[str]:
         done.append("wrote Jobs header")
         fresh = True
     else:
-        if "Applied" not in first:  # checkbox column goes first (column A); existing data shifts right intact
-            sh.batch_update({"requests": [{"insertDimension": {
-                "range": {"sheetId": jobs.id, "dimension": "COLUMNS", "startIndex": 0, "endIndex": 1}, "inheritFromBefore": False}}]})
-            jobs.update([["Applied"]], "A1", value_input_option="RAW")
-            done.append("added Applied checkbox column (A)")
-            first = jobs.row_values(1)
+        for i, col in enumerate(CHECKBOX_COLUMNS):  # checkbox columns go first (A, B, ...); existing data shifts right intact
+            if col not in first:
+                sh.batch_update({"requests": [{"insertDimension": {
+                    "range": {"sheetId": jobs.id, "dimension": "COLUMNS", "startIndex": i, "endIndex": i + 1}, "inheritFromBefore": False}}]})
+                jobs.update([[col]], gspread.utils.rowcol_to_a1(1, i + 1), value_input_option="RAW")
+                done.append(f"added {col} checkbox column ({gspread.utils.rowcol_to_a1(1, i + 1)[:-1]})")
+                first = jobs.row_values(1)
         missing = [h for h in JOBS_COLUMNS if h not in first]
         if missing:
             need = len(first) + len(missing)
@@ -305,13 +306,17 @@ def ensure_sheet_layout(gc: gspread.Client, sheet_id: str) -> list[str]:
     hdr = jobs.row_values(1)
     status_col = hdr.index("Status")
     url_col = hdr.index("Job URL")
-    applied_col = hdr.index("Applied")
-    requests = [
-        {"setDataValidation": {
-            "range": {"sheetId": jobs.id, "startRowIndex": 1, "startColumnIndex": applied_col, "endColumnIndex": applied_col + 1},
-            "rule": {"condition": {"type": "BOOLEAN"}, "showCustomUi": True}}},
-        {"updateDimensionProperties": {"range": {"sheetId": jobs.id, "dimension": "COLUMNS", "startIndex": applied_col, "endIndex": applied_col + 1},
-                                       "properties": {"pixelSize": 70}, "fields": "pixelSize"}},
+    requests = []
+    for col in CHECKBOX_COLUMNS:
+        ci = hdr.index(col)
+        requests += [
+            {"setDataValidation": {
+                "range": {"sheetId": jobs.id, "startRowIndex": 1, "startColumnIndex": ci, "endColumnIndex": ci + 1},
+                "rule": {"condition": {"type": "BOOLEAN"}, "showCustomUi": True}}},
+            {"updateDimensionProperties": {"range": {"sheetId": jobs.id, "dimension": "COLUMNS", "startIndex": ci, "endIndex": ci + 1},
+                                           "properties": {"pixelSize": 70}, "fields": "pixelSize"}},
+        ]
+    requests += [
         *[{"updateSheetProperties": {"properties": {"sheetId": ws.id, "gridProperties": {"frozenRowCount": 1}},
                                      "fields": "gridProperties.frozenRowCount"}} for ws in (jobs, logws, state)],
         *[{"repeatCell": {"range": {"sheetId": ws.id, "startRowIndex": 0, "endRowIndex": 1},

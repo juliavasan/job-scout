@@ -35,7 +35,7 @@ Job Scout/                                             ┌───────�
 | **Log** (Google Sheet, optional) | Run history with cost per run. You create it empty; the agent adds a **Runs** tab. |
 | **Jobs** (Google Sheet) | You create it empty. The agent adds three tabs: **Jobs** (results), **Log** (one row per run) and a hidden **_state** tab (bookkeeping). |
 
-**Jobs tab columns:** **Applied** (checkbox, yours to tick) · Date added · Fit score (1–10) · Job title · Company · Why it fits · Concerns / red flags ·
+**Jobs tab columns:** **Applied** (checkbox) · **Ignore** (checkbox) · Date added · Fit score (1–10) · Job title · Company · Why it fits · Concerns / red flags ·
 Location · Work mode · Employment type · Seniority · Salary range · Equity mentioned · Posted date ·
 Company type / industry · Company size · Funding stage / public · HQ · Company description · Job URL ·
 Company website · Source · **Status** (dropdown) · **My feedback** · **Best resume** · **LinkedIn URL** · **Company job URL** · **Date opened**
@@ -208,7 +208,8 @@ of a few resumes adds little cost.
 
 ## How feedback works
 
-1. In the **Jobs** tab, set **Status** to `Not a fit` and write a reason in **My feedback**, e.g. `too sales-heavy`, `no agencies`.
+1. In the **Jobs** tab, tick **Ignore** (or set **Status** to `Not a fit`). Optionally write a reason in **My feedback**,
+   e.g. `too sales-heavy`, `no agencies`. An ignored job is never added again, even if it's reposted on another site.
    Or just **highlight the row orange/red**. It counts as "not for me" even without a reason, and Claude works out the most
    likely reason from the job itself (for example "needs security expertise" or "hybrid in San Francisco").
 2. On the next run, before searching, the agent reads every `Not a fit` row with feedback it hasn't seen yet. Claude turns
