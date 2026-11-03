@@ -186,9 +186,22 @@ def cmd_run(args) -> int:
         started, t0 = datetime.now(timezone.utc), time.monotonic()
         mode = "replay" if args.replay else ("dry-run" if args.dry_run else "run")
         claude, sources = None, []
+        from .google_io import GoogleSetupError
         try:
             files, _ = setup_profile(drive, name, folder_id)
+        except GoogleSetupError as e:
+            if "needs" in str(e):  # folder not set up yet (no Brief / Jobs sheet): skip, don't fail the run
+                logging.warning("[%s] skipped: folder not set up yet%s", label, "" if IN_CI else f" ({e})")
+                continue
+            raise
+        locked = False
+        try:
             store = DriveProfileStore(drive, files)
+            if not (args.dry_run or args.replay):
+                if not store.acquire_lock("cloud" if IN_CI else "local"):
+                    logging.warning("[%s] skipped: another run is in progress for this person", label)
+                    continue
+                locked = True
             claude = Claude()
             resolver = make_resolver(serp_key, claude)
             resolver.cache.update({st["Key"]: st.get("Value", "") for st in store.read_state()
@@ -214,6 +227,11 @@ def cmd_run(args) -> int:
                 rep = run_profile(p, store, claude, sources, dry_run=args.dry_run, resolver=resolver)
                 save_candidates(name, rep.raw_jobs)
         except Exception as e:  # isolate profiles from each other
+            if locked:
+                try:
+                    store.release_lock()
+                except Exception:
+                    pass
             failures += 1
             write_run_log(format_run_line(started, name, mode, failure=f"{type(e).__name__}: {str(e)[:200]}"))
             if store is not None and not (args.dry_run or args.replay):
@@ -230,6 +248,11 @@ def cmd_run(args) -> int:
                 except Exception:
                     pass
             continue
+        if locked:
+            try:
+                store.release_lock()
+            except Exception:
+                pass
         seconds = time.monotonic() - t0
         write_run_log(format_run_line(started, name, mode, rep, searches=sources[0].searches_used + resolver.serp.searches_used,
                                       usage=claude.usage, seconds=seconds))

@@ -464,6 +464,27 @@ class DriveProfileStore:
         values = self._ws(TAB_STATE).get_all_values()
         return [dict(zip(STATE_COLUMNS, r + [""] * (len(STATE_COLUMNS) - len(r)))) for r in values[1:]] if values else []
 
+    LOCK_MINUTES = 30
+
+    def acquire_lock(self, owner: str) -> bool:
+        """Simple run lock (cells F1:G1 of the hidden _state tab) so a local run and the cloud run never overlap."""
+        from datetime import datetime, timedelta, timezone
+
+        ws = self._ws(TAB_STATE)
+        cur = ws.get("F1:G1")
+        if cur and cur[0] and len(cur[0]) >= 2 and cur[0][1]:
+            try:
+                since = datetime.fromisoformat(cur[0][1])
+                if datetime.now(timezone.utc) - since < timedelta(minutes=self.LOCK_MINUTES):
+                    return False
+            except ValueError:
+                pass
+        ws.update([[f"running: {owner}", datetime.now(timezone.utc).isoformat(timespec="seconds")]], "F1:G1", value_input_option="RAW")
+        return True
+
+    def release_lock(self) -> None:
+        self._ws(TAB_STATE).update([["", ""]], "F1:G1", value_input_option="RAW")
+
     def append_state(self, rows: list[list[str]]) -> None:
         if rows:
             self._ws(TAB_STATE).append_rows(rows, value_input_option="RAW", table_range="A1")

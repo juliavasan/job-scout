@@ -20,7 +20,7 @@ import logging
 import re
 import time
 from dataclasses import dataclass, field
-from datetime import date
+from datetime import date, datetime, timezone
 from urllib.parse import quote, urlsplit
 
 import httpx
@@ -219,7 +219,7 @@ def search_ats(ats: Ats, title: str) -> list[Posting] | None:
             for p in r.json().get("positions", []):
                 t = p.get("t_create")
                 out.append(Posting(p.get("name", ""), p.get("canonicalPositionUrl") or f"https://{h}/careers/job/{p.get('id')}",
-                                   date.fromtimestamp(t) if t else None, p.get("location", ""), detail=f"{h}|{p.get('id')}"))
+                                   datetime.fromtimestamp(t, tz=timezone.utc).date() if t else None, p.get("location", ""), detail=f"{h}|{p.get('id')}"))
             return out
         if ats.kind == "greenhouse":
             r = _get(f"https://boards-api.greenhouse.io/v1/boards/{ats.a}/jobs")
@@ -360,7 +360,10 @@ class LinkResolver:
     def _remember(self, company: str, ats: Ats | None) -> None:
         key = normalize_company(company)
         val = ats.dumps() if ats else "none"
-        if self.cache.get(key) != val:
+        old = self.cache.get(key)
+        if old and old != "none" and val != old:
+            return  # keep the careers system we already know works (fix it by hand in _state if it changes)
+        if old != val:
             self.cache[key] = self.new_cache[key] = val
 
     def ats_for_company(self, company: str, hint_title: str = "") -> Ats | None:
