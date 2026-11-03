@@ -143,6 +143,10 @@ def run_profile(
         rep.errors.append(f"plan: {e}")
         plan = SearchPlan(queries=[])
     plan.ats_boards = parse_watchlist(brief)  # "Companies to watch" section of the brief
+    if not replay:  # let sources skip what we've already seen before applying their per-company caps
+        plan.known_urls = {u for r in rows if (u := canonical_url(r.get("Job URL", "")))} | \
+                          {u for r in rows if (u := canonical_url(r.get("Company job URL", "")))} | \
+                          {s_["Key"] for s_ in state if s_.get("Kind") == STATE_REJECTED}
     raw: list[RawJob] = []
     for src in sources:
         try:

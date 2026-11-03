@@ -135,3 +135,22 @@ def test_js_only_page_counts_as_unverifiable(monkeypatch):
         status_code, url, text = 200, "https://www.metacareers.com/profile/job_details/1769900794137147/", "<html><div id=root></div></html>"
     monkeypatch.setattr(C, "_get", lambda url, **kw: R())
     assert C.check(R.url, ["Technical Program Manager"]) == "blocked"
+
+
+def test_company_sites_skips_known_before_cap(monkeypatch):
+    from jobscout.sources import CompanySites, SearchPlan, SearchQuery
+    from jobscout.sources import company_sites as cs
+    monkeypatch.setattr(cs, "PER_COMPANY", 1)
+    ats = C.Ats("greenhouse", "acme")
+
+    class Res:
+        def ats_for_company(self, company, hint_title=""):
+            return ats
+    monkeypatch.setattr(C, "search_ats", lambda a, q: [
+        C.Posting("Senior Technical Program Manager A", "https://boards.greenhouse.io/acme/jobs/1111", date.today(), "US"),
+        C.Posting("Senior Technical Program Manager B", "https://boards.greenhouse.io/acme/jobs/2222", date.today(), "US")])
+    monkeypatch.setattr(C, "fetch_details", lambda a, p: p)
+    plan = SearchPlan(queries=[SearchQuery("tpm")], title_keywords=["technical program manager"], ats_boards=["Acme"],
+                      known_urls={"https://boards.greenhouse.io/acme/jobs/1111"})
+    jobs = CompanySites(Res()).fetch(plan, 7)
+    assert [j.title for j in jobs] == ["Senior Technical Program Manager B"]

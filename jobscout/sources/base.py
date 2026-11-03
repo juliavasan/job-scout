@@ -22,6 +22,7 @@ class SearchPlan:
     queries: list[SearchQuery]
     title_keywords: list[str] = field(default_factory=list)
     ats_boards: list[str] = field(default_factory=list)  # "greenhouse:acme", "lever:foo", "ashby:bar"
+    known_urls: set[str] = field(default_factory=set)    # canonical URLs already in the sheet or already rejected
 
 
 class Source(ABC):

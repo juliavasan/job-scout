@@ -17,6 +17,7 @@ import os
 import re
 from datetime import timedelta
 
+from ..dedup import canonical_url
 from ..models import RawJob
 from .base import SearchPlan, Source, today
 
@@ -24,7 +25,7 @@ log = logging.getLogger(__name__)
 
 _EXPLICIT = re.compile(r"^(greenhouse|lever|ashby|smartrecruiters|workday|eightfold):\s*(\S+)(?:\s+(\S+))?$", re.I)
 PER_COMPANY = int(os.environ.get("JOBSCOUT_PER_COMPANY", "5"))
-WATCH_MAX_AGE_DAYS = int(os.environ.get("JOBSCOUT_WATCH_MAX_AGE_DAYS", "30"))
+WATCH_MAX_AGE_DAYS = int(os.environ.get("JOBSCOUT_WATCH_MAX_AGE_DAYS", "90"))
 
 
 def parse_watchlist(brief: str) -> list[str]:
@@ -109,6 +110,8 @@ class CompanySites(Source):
                         continue
                     if p.opened and p.opened < cutoff:
                         continue
+                    if canonical_url(p.url) in plan.known_urls:
+                        continue  # already in the sheet or already rejected: don't let it use up the per-company cap
                     postings.append(p)
             postings.sort(key=lambda p: p.opened or today(), reverse=True)
             for p in postings[:PER_COMPANY]:

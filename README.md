@@ -250,7 +250,7 @@ A posting is skipped if any of these is true:
 | Source | What it does |
 |---|---|
 | `SerpApiGoogleJobs` | Google for Jobs: LinkedIn, Indeed, Glassdoor, Built In and company career pages. About 4 searches per run, postings from the last 7 days. |
-| `CompanySites` | Searches the **companies' own career sites** for your target roles. Companies come from the brief's "Companies to watch" section, one per line: a company name (`Netflix`), a careers URL (`https://nvidia.wd5.myworkdayjobs.com/NVIDIAExternalCareerSite`), or `greenhouse:slug` / `lever:slug` / `ashby:slug`. Supports Workday, Eightfold, Greenhouse, Lever, Ashby and SmartRecruiters. Jobs found this way come with the exact company URL, date opened and full description. Up to `JOBSCOUT_PER_COMPANY` (5, newest first) per company, opened within `JOBSCOUT_WATCH_MAX_AGE_DAYS` (30). |
+| `CompanySites` | Searches the **companies' own career sites** for your target roles. Companies come from the brief's "Companies to watch" section, one per line: a company name (`Netflix`), a careers URL (`https://nvidia.wd5.myworkdayjobs.com/NVIDIAExternalCareerSite`), or `greenhouse:slug` / `lever:slug` / `ashby:slug`. Supports Workday, Eightfold, Greenhouse, Lever, Ashby and SmartRecruiters. Jobs found this way come with the exact company URL, date opened and full description. Up to `JOBSCOUT_PER_COMPANY` (5, newest first) new postings per company per run, opened within `JOBSCOUT_WATCH_MAX_AGE_DAYS` (90). Jobs already in the sheet or already rejected are skipped first, so older good roles get their turn on later runs. |
 
 To add a source, subclass `jobscout.sources.base.Source`, implement `fetch(plan, max_age_days) -> list[RawJob]`, and add it in `cli.py`.
 
