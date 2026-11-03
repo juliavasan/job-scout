@@ -7,16 +7,9 @@ their own folder, brief and sheet.
 
 See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for diagrams and design details.
 
-```
-Google Drive (shared with a service account)          GitHub Actions, daily
-Job Scout/                                             ┌──────────────────────────────────────┐
-├── julia/                                             │ read brief + feedback                │
-│   ├── Brief   (Google Doc) ◄──── learned rules ───── │ Claude: brief → search queries       │
-│   └── Jobs    (Google Sheet) ◄── new rows ────────── │ SerpApi Google Jobs (+ ATS boards)   │
-└── friend/                                            │ dedup → Claude judges fit → company  │
-    ├── Brief                                          │ facts (web search) → append rows     │
-    └── Jobs                                           └──────────────────────────────────────┘
-```
+![Job Scout architecture](docs/architecture.svg)
+
+More detail (flows, data model, design notes): [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
 
 - **No LinkedIn login, no cookies, no scraping.** LinkedIn postings come in through Google for Jobs
   (via [SerpApi](https://serpapi.com/google-jobs-api)). When a posting has a LinkedIn link, that link goes in the sheet.

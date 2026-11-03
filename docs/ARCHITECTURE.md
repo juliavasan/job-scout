@@ -4,6 +4,10 @@ Job Scout is a small batch pipeline that runs once a day. It has no server, no d
 **Each person's Drive folder is their UI and their storage**: a Brief doc to steer the search, and a
 Jobs sheet that collects results and feedback. GitHub Actions is the scheduler, and Claude does the reasoning.
 
+## At a glance
+
+![Job Scout architecture](architecture.svg)
+
 ## System overview
 
 ```mermaid

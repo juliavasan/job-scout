@@ -1,0 +1,120 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="720" viewBox="0 0 1200 720" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#64748b"/>
+    </marker>
+    <filter id="shadow" x="-5%" y="-5%" width="110%" height="115%">
+      <feDropShadow dx="0" dy="2" stdDeviation="3" flood-color="#0f172a" flood-opacity="0.08"/>
+    </filter>
+  </defs>
+
+  <!-- background -->
+  <rect width="1200" height="720" fill="#ffffff"/>
+
+  <!-- title -->
+  <text x="40" y="52" font-size="28" font-weight="700" fill="#0f172a">Job Scout — architecture</text>
+  <text x="40" y="80" font-size="15" fill="#64748b">A daily agent that finds jobs, judges them against your brief with Claude, and writes the good ones to your Google Sheet.</text>
+
+  <!-- ===== 1. Schedule ===== -->
+  <g filter="url(#shadow)">
+    <rect x="40" y="130" width="230" height="250" rx="14" fill="#f8fafc" stroke="#cbd5e1"/>
+  </g>
+  <rect x="40" y="130" width="230" height="44" rx="14" fill="#334155"/>
+  <rect x="40" y="160" width="230" height="14" fill="#334155"/>
+  <text x="155" y="158" font-size="16" font-weight="700" fill="#ffffff" text-anchor="middle">⏰ Schedule</text>
+  <text x="58" y="208" font-size="16" font-weight="700" fill="#0f172a">GitHub Actions</text>
+  <text x="58" y="232" font-size="14" fill="#334155">Runs every day at 6 AM PT</text>
+  <text x="58" y="254" font-size="14" fill="#334155">(or on demand)</text>
+  <line x1="58" y1="276" x2="252" y2="276" stroke="#e2e8f0"/>
+  <text x="58" y="302" font-size="14" font-weight="600" fill="#0f172a">🔒 GitHub Secrets</text>
+  <text x="58" y="324" font-size="13" fill="#475569">Claude token · SerpApi key</text>
+  <text x="58" y="344" font-size="13" fill="#475569">Google service account</text>
+  <text x="58" y="364" font-size="13" fill="#475569">Drive folder ID</text>
+
+  <!-- arrow schedule -> agent -->
+  <line x1="272" y1="255" x2="328" y2="255" stroke="#64748b" stroke-width="2.5" marker-end="url(#arrow)"/>
+  <text x="300" y="244" font-size="12" fill="#64748b" text-anchor="middle">starts</text>
+
+  <!-- ===== 2. Agent ===== -->
+  <g filter="url(#shadow)">
+    <rect x="335" y="130" width="250" height="250" rx="14" fill="#eef2ff" stroke="#a5b4fc"/>
+  </g>
+  <rect x="335" y="130" width="250" height="44" rx="14" fill="#4f46e5"/>
+  <rect x="335" y="160" width="250" height="14" fill="#4f46e5"/>
+  <text x="460" y="158" font-size="16" font-weight="700" fill="#ffffff" text-anchor="middle">🐍 The agent</text>
+  <text x="353" y="208" font-size="16" font-weight="700" fill="#1e1b4b">jobscout (Python 3.11)</text>
+  <text x="353" y="236" font-size="14" fill="#312e81">1. Read brief + your feedback</text>
+  <text x="353" y="258" font-size="14" fill="#312e81">2. Search for new jobs</text>
+  <text x="353" y="280" font-size="14" fill="#312e81">3. Skip duplicates</text>
+  <text x="353" y="302" font-size="14" fill="#312e81">4. Judge fit with Claude</text>
+  <text x="353" y="324" font-size="14" fill="#312e81">5. Find company link + date</text>
+  <text x="353" y="346" font-size="14" fill="#312e81">6. Add rows to the sheet</text>
+  <text x="353" y="368" font-size="12" fill="#6366f1">httpx · gspread · pydantic</text>
+
+  <!-- arrows agent -> services -->
+  <line x1="587" y1="205" x2="652" y2="168" stroke="#64748b" stroke-width="2.5" marker-end="url(#arrow)"/>
+  <line x1="587" y1="255" x2="652" y2="335" stroke="#64748b" stroke-width="2.5" marker-end="url(#arrow)"/>
+  <line x1="587" y1="320" x2="652" y2="500" stroke="#64748b" stroke-width="2.5" marker-start="url(#arrow)" marker-end="url(#arrow)"/>
+
+  <!-- ===== 3a. Job sources ===== -->
+  <g filter="url(#shadow)">
+    <rect x="660" y="110" width="500" height="140" rx="14" fill="#ecfdf5" stroke="#6ee7b7"/>
+  </g>
+  <rect x="660" y="110" width="500" height="40" rx="14" fill="#059669"/>
+  <rect x="660" y="136" width="500" height="14" fill="#059669"/>
+  <text x="910" y="136" font-size="16" font-weight="700" fill="#ffffff" text-anchor="middle">🔎 Job sources</text>
+  <text x="678" y="176" font-size="15" font-weight="700" fill="#064e3b">SerpApi → Google Jobs</text>
+  <text x="678" y="196" font-size="13" fill="#065f46">LinkedIn, Indeed, Glassdoor listings via Google (no login)</text>
+  <text x="678" y="222" font-size="15" font-weight="700" fill="#064e3b">Company career sites (searched directly)</text>
+  <text x="678" y="242" font-size="13" fill="#065f46">Workday · Eightfold · Greenhouse · Lever · Ashby · SmartRecruiters</text>
+
+  <!-- ===== 3b. Claude ===== -->
+  <g filter="url(#shadow)">
+    <rect x="660" y="275" width="500" height="140" rx="14" fill="#fff7ed" stroke="#fdba74"/>
+  </g>
+  <rect x="660" y="275" width="500" height="40" rx="14" fill="#ea580c"/>
+  <rect x="660" y="301" width="500" height="14" fill="#ea580c"/>
+  <text x="910" y="301" font-size="16" font-weight="700" fill="#ffffff" text-anchor="middle">🧠 AI: Claude</text>
+  <text x="678" y="341" font-size="15" font-weight="700" fill="#7c2d12">Claude Code (subscription)</text>
+  <text x="678" y="363" font-size="13" fill="#9a3412">Sonnet 5.5: scores each job 1–10 vs. your brief + resumes</text>
+  <text x="678" y="383" font-size="13" fill="#9a3412">Haiku 5.5: turns your brief into search queries</text>
+  <text x="678" y="403" font-size="13" fill="#9a3412">JSON output validated with Pydantic · API key as fallback</text>
+
+  <!-- ===== 3c. Google ===== -->
+  <g filter="url(#shadow)">
+    <rect x="660" y="440" width="300" height="140" rx="14" fill="#eff6ff" stroke="#93c5fd"/>
+  </g>
+  <rect x="660" y="440" width="300" height="40" rx="14" fill="#2563eb"/>
+  <rect x="660" y="466" width="300" height="14" fill="#2563eb"/>
+  <text x="810" y="466" font-size="16" font-weight="700" fill="#ffffff" text-anchor="middle">📁 Google Drive · per person</text>
+  <text x="678" y="506" font-size="14" fill="#1e3a8a"><tspan font-weight="700">Brief</tspan> (Doc): what you're looking for</text>
+  <text x="678" y="527" font-size="14" fill="#1e3a8a"><tspan font-weight="700">Jobs</tspan> (Sheet): results + Applied / Ignore</text>
+  <text x="678" y="548" font-size="14" fill="#1e3a8a"><tspan font-weight="700">Resumes</tspan> folder · <tspan font-weight="700">Log</tspan> sheet</text>
+  <text x="678" y="569" font-size="12" fill="#3b82f6">Access: service account, this folder only</text>
+
+  <!-- ===== 4. You ===== -->
+  <g filter="url(#shadow)">
+    <rect x="1010" y="440" width="150" height="140" rx="14" fill="#fdf4ff" stroke="#e879f9"/>
+  </g>
+  <text x="1085" y="478" font-size="30" text-anchor="middle">👩‍💻</text>
+  <text x="1085" y="506" font-size="16" font-weight="700" fill="#701a75" text-anchor="middle">You</text>
+  <text x="1085" y="528" font-size="13" fill="#86198f" text-anchor="middle">phone or laptop</text>
+  <text x="1085" y="548" font-size="12" fill="#a21caf" text-anchor="middle">edit brief · tick</text>
+  <text x="1085" y="565" font-size="12" fill="#a21caf" text-anchor="middle">Applied / Ignore</text>
+  <line x1="962" y1="510" x2="1006" y2="510" stroke="#64748b" stroke-width="2.5" marker-start="url(#arrow)" marker-end="url(#arrow)"/>
+
+  <!-- ===== Feedback loop ===== -->
+  <g filter="url(#shadow)">
+    <rect x="40" y="420" width="545" height="160" rx="14" fill="#fefce8" stroke="#fde047"/>
+  </g>
+  <text x="60" y="452" font-size="16" font-weight="700" fill="#713f12">🔁 It learns from you</text>
+  <text x="60" y="480" font-size="14" fill="#854d0e">Tick <tspan font-weight="700">Ignore</tspan> (or highlight a row orange) → the next run asks</text>
+  <text x="60" y="501" font-size="14" fill="#854d0e">Claude <tspan font-style="italic">why</tspan> it's not a fit and adds a dated rule to your Brief,</text>
+  <text x="60" y="522" font-size="14" fill="#854d0e">e.g. "Exclude roles that need security expertise".</text>
+  <text x="60" y="550" font-size="14" fill="#854d0e">Ignored jobs never come back. Rules stay readable and editable.</text>
+
+  <!-- footer -->
+  <line x1="40" y1="620" x2="1160" y2="620" stroke="#e2e8f0"/>
+  <text x="40" y="652" font-size="13" fill="#64748b"><tspan font-weight="700" fill="#334155">Privacy:</tspan> the public repo holds only code. Briefs, resumes and results stay in your Drive; keys stay in GitHub Secrets; cloud logs show counts only.</text>
+  <text x="40" y="676" font-size="13" fill="#64748b"><tspan font-weight="700" fill="#334155">Cost:</tspan> Claude runs on your subscription · SerpApi free plan (~4 searches/day) · career-site searches are free.</text>
+</svg>
