@@ -471,6 +471,8 @@ class DriveProfileStore:
         from datetime import datetime, timedelta, timezone
 
         ws = self._ws(TAB_STATE)
+        if ws.col_count < 7:
+            ws.add_cols(7 - ws.col_count)
         cur = ws.get("F1:G1")
         if cur and cur[0] and len(cur[0]) >= 2 and cur[0][1]:
             try:

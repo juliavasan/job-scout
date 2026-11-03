@@ -175,7 +175,11 @@ def cmd_run(args) -> int:
     from .sources import CompanySites, SerpApiGoogleJobs
 
     serp_key = require_env("SERPAPI_API_KEY")
-    require_env("ANTHROPIC_API_KEY")
+    from .llm import resolve_backend
+    backend = resolve_backend()
+    if backend == "api":
+        require_env("ANTHROPIC_API_KEY")
+    logging.info("Claude backend: %s", "Claude Code (subscription)" if backend == "claude-code" else "Anthropic API (credit)")
     drive, _ = _drive()
 
     failures = 0

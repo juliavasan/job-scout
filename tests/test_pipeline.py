@@ -234,3 +234,11 @@ def test_resolver_used_and_ats_cached(fake_llm):
     assert row["Company job URL"].endswith("/123456") and row["Date opened"].startswith("2026-10-29")
     assert row["LinkedIn URL"] == "https://linkedin.com/jobs/view/4012345678"
     assert ["ats", "acme"] == store.state[-1][:2] or any(r[0] == "ats" for r in store.state[1:])
+
+
+def test_same_company_title_with_remote_variant_is_duplicate():
+    store = FakeStore()
+    pipeline.run_profile(P, store, DummyClaude(), [FakeSource([J("Strategic Partnerships, TPM", "ServiceNow", loc="Santa Clara, CA (Flexible or Remote)", url="https://a.com/1")])])
+    rep = pipeline.run_profile(P, store, DummyClaude(), [FakeSource([J("Strategic Partnerships, TPM", "Servicenow", loc="Santa Clara", url="https://b.com/2"),
+                                                                   J("Strategic Partnerships, TPM", "ServiceNow", loc="London, UK", url="https://c.com/3")])])
+    assert rep.skipped_dup == 1 and rep.added == 1  # Santa Clara copy is a duplicate; London is a different posting

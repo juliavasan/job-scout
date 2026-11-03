@@ -254,6 +254,17 @@ A posting is skipped if any of these is true:
 
 To add a source, subclass `jobscout.sources.base.Source`, implement `fetch(plan, max_age_days) -> list[RawJob]`, and add it in `cli.py`.
 
+## Claude: subscription (Claude Code) or API credit
+
+`JOBSCOUT_LLM_BACKEND` chooses how Claude is called:
+- `claude-code`: through the Claude Code CLI (`claude -p` with a JSON schema, no tools except WebSearch for company
+  research). It uses your **Claude subscription's usage** instead of API credit. Locally that's your logged-in Claude Code.
+  The agent removes `ANTHROPIC_API_KEY` from the CLI's environment so it can't bill the API by accident.
+- `api`: the Anthropic API with `ANTHROPIC_API_KEY` (pay-as-you-go credit).
+- `auto` (default): `claude-code` if the `claude` CLI is installed, otherwise `api`.
+
+The run log's cost column shows the list-price equivalent either way. With `claude-code` it's covered by the subscription.
+
 ## Models and cost
 
 - `claude-sonnet-5-5` judges fit, extracts the fields and researches companies (with web search). `claude-haiku-5-5` writes the search queries.

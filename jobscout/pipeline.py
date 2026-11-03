@@ -69,6 +69,14 @@ def learned_addition(brief: str, rules: list[str], day: str) -> str:
     return "\n\n" + LEARNED_HEADER + "\n" + lines + "\n"
 
 
+_LOC_STOP = {"ca", "usa", "us", "united", "states", "america", "the", "of", "or", "and", "flexible", "hybrid", "onsite", "office", "other", "others"}
+
+
+def _loc_words(location: str) -> set[str]:
+    import re as _re
+    return {w for w in _re.findall(r"[a-z]+", (location or "").lower()) if len(w) > 2 and w not in _LOC_STOP}
+
+
 def _row_keys(row: dict) -> tuple[str, str]:
     return canonical_url(row.get("Job URL", "")), job_key(row.get("Company", ""), row.get("Job title", ""), row.get("Location", ""))
 
@@ -163,20 +171,31 @@ def run_profile(
     seen_keys = set() if replay else {job_key(r.get("Company", ""), r.get("Job title", ""), r.get("Location", "")) for r in rows}
     not_fit = {company_title_key(r.get("Company", ""), r.get("Job title", "")) for r in rows if r.get("_not_fit")}
     rejected = {s["Key"] for s in state if s.get("Kind") == STATE_REJECTED}
+    # company+title -> location words seen, to catch "Santa Clara" vs "Santa Clara (Flexible or Remote)"
+    seen_ct: dict[str, set[str]] = {}
+    for r in ([] if replay else rows):
+        seen_ct.setdefault(company_title_key(r.get("Company", ""), r.get("Job title", "")), set()).update(_loc_words(r.get("Location", "")))
     candidates: list[RawJob] = []
     for job in raw:
         urls = {canonical_url(u) for u in job.all_urls()} - {""}
         key = job_key(job.company, job.title, job.location)
+        ct = company_title_key(job.company, job.title)
+        locs = _loc_words(job.location)
+        prev = seen_ct.get(ct)
+        pure_remote = lambda w: w <= {"remote", "anywhere"}
+        same_job_elsewhere = prev is not None and (
+            not locs or not prev or bool((locs & prev) - {"remote", "anywhere"}) or pure_remote(locs) or pure_remote(prev))
         if replay:
-            if urls & seen_urls or key in seen_keys:  # only dedup within the replayed batch
+            if urls & seen_urls or key in seen_keys or same_job_elsewhere:  # only dedup within the replayed batch
                 rep.skipped_dup += 1
                 continue
-        elif urls & seen_urls or key in seen_keys or company_title_key(job.company, job.title) in not_fit \
+        elif urls & seen_urls or key in seen_keys or ct in not_fit or same_job_elsewhere \
                 or urls & rejected or key in rejected:
             rep.skipped_dup += 1
             continue
         seen_urls |= urls
         seen_keys.add(key)
+        seen_ct.setdefault(ct, set()).update(locs)
         candidates.append(job)
     if len(candidates) > MAX_TO_JUDGE:
         rep.skipped_over_cap += len(candidates) - MAX_TO_JUDGE

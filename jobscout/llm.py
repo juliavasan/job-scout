@@ -25,6 +25,21 @@ _FALLBACK_BETA = "server-side-fallback-2026-07-01"
 
 MAX_DESCRIPTION_CHARS = 12000
 
+# Which way Claude is called:
+#   "claude-code" - through the Claude Code CLI (`claude -p`), using your Claude subscription's usage
+#                   (locally: your logged-in Claude Code; in CI: a CLAUDE_CODE_OAUTH_TOKEN from `claude setup-token`)
+#   "api"         - the Anthropic API with ANTHROPIC_API_KEY (pay-as-you-go credit)
+#   "auto"        - claude-code when the `claude` CLI is installed, else api   (default)
+BACKEND = os.environ.get("JOBSCOUT_LLM_BACKEND", "auto").lower()
+
+
+def resolve_backend() -> str:
+    import shutil
+    if BACKEND in ("api", "claude-code"):
+        return BACKEND
+    return "claude-code" if shutil.which("claude") else "api"
+
+
 T = TypeVar("T", bound=BaseModel)
 
 
@@ -125,8 +140,9 @@ WEB_SEARCH_USD = 10 / 1000
 
 
 class Claude:
-    def __init__(self, client: anthropic.Anthropic | None = None):
-        self.client = client or anthropic.Anthropic(max_retries=4)
+    def __init__(self, client: anthropic.Anthropic | None = None, backend: str | None = None):
+        self.backend = backend or ("api" if client is not None else resolve_backend())
+        self.client = client or (anthropic.Anthropic(max_retries=4) if self.backend == "api" else None)
         self.usage = {"input_tokens": 0, "output_tokens": 0, "calls": 0, "web_searches": 0, "cost_usd": 0.0}
 
     def _track(self, model: str, u) -> None:
@@ -158,6 +174,8 @@ class Claude:
         tools: list | None = None,
         max_tokens: int = 8000,
     ) -> T:
+        if self.backend == "claude-code":
+            return self._call_claude_code(schema, system=system, user=user, model=model, tools=tools)
         messages: list = [{"role": "user", "content": user}]
         output_config = {"effort": effort, "format": {"type": "json_schema", "schema": _strict_schema(schema)}}
         system_blocks = [{"type": "text", "text": system, "cache_control": {"type": "ephemeral"}}]
@@ -186,6 +204,56 @@ class Claude:
                     raise LLMError(f"invalid JSON from model: {e}") from e
                 log.warning("invalid JSON from model, retrying once")
         raise LLMError("unreachable")
+
+
+    # ----- Claude Code CLI backend (subscription usage) -----
+    def _call_claude_code(self, schema: type[T], *, system: str, user: str, model: str, tools: list | None) -> T:
+        import subprocess
+        import tempfile
+
+        web = any(t.get("name") == "web_search" for t in (tools or []))
+        cmd = [
+            "claude", "-p", "--output-format", "json", "--no-session-persistence", "--strict-mcp-config",
+            "--model", model, "--system-prompt", system,
+            "--json-schema", json.dumps(_strict_schema(schema)),
+            "--tools", "WebSearch" if web else "",
+        ]
+        if web:
+            cmd += ["--allowedTools", "WebSearch"]
+        env = {k: v for k, v in os.environ.items()
+               if k not in ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_BASE_URL")}  # never bill the API key
+        last_err = ""
+        for attempt in range(2):
+            try:
+                with tempfile.TemporaryDirectory() as cwd:  # no project files/CLAUDE.md in context
+                    proc = subprocess.run(cmd, input=user, capture_output=True, text=True, timeout=600, env=env, cwd=cwd)
+            except subprocess.TimeoutExpired:
+                last_err = "claude CLI timed out"
+                continue
+            try:
+                out = json.loads(proc.stdout)
+            except json.JSONDecodeError:
+                last_err = f"claude CLI error (exit {proc.returncode}): {(proc.stderr or proc.stdout)[:300]}"
+                if "rate limit" in last_err.lower() or "usage limit" in last_err.lower():
+                    break
+                continue
+            u = out.get("usage") or {}
+            self.usage["calls"] += 1
+            self.usage["input_tokens"] += (u.get("input_tokens") or 0) + (u.get("cache_read_input_tokens") or 0) + (u.get("cache_creation_input_tokens") or 0)
+            self.usage["output_tokens"] += u.get("output_tokens") or 0
+            self.usage["web_searches"] += ((u.get("server_tool_use") or {}).get("web_search_requests") or 0)
+            self.usage["cost_usd"] += out.get("total_cost_usd") or 0.0  # list-price equivalent; covered by the subscription
+            if out.get("is_error"):
+                last_err = f"claude CLI: {str(out.get('result'))[:300]}"
+                if "limit" in last_err.lower():
+                    break
+                continue
+            data = out.get("structured_output")
+            try:
+                return schema.model_validate(data if data is not None else _extract_json(out.get("result") or ""))
+            except (json.JSONDecodeError, ValidationError) as e:
+                last_err = f"invalid JSON from Claude Code: {e}"
+        raise LLMError(last_err or "claude CLI failed")
 
 
 # ---------- tasks ----------
