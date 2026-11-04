@@ -159,10 +159,15 @@ gh secret set JOBSCOUT_ROOT_FOLDER_ID
 doesn't block the others. You can start a run by hand under **Actions → Daily job scout → Run workflow**, or with
 `gh workflow run "Daily job scout"`.
 
-**About the time.** GitHub's cron runs on UTC and **does not follow daylight saving time**. The schedule
-`0 14 * * *` is **6:00 AM PST** in winter and **7:00 AM PDT** in summer. To get 6 AM in summer instead, use
-`0 13 * * *` (which means 5 AM in winter). GitHub can start scheduled runs 5–30 minutes late, and it pauses
-schedules in repos with no activity for 60 days. A push or a manual run re-enables them.
+**About the time.** GitHub's cron runs on UTC and **does not follow daylight saving time**. The main slot
+`17 14 * * *` is **6:17 AM PST** in winter and **7:17 AM PDT** in summer. To get ~6 AM in summer instead, use
+`17 13 * * *` (which means 5:17 AM in winter).
+
+**Backup slots.** GitHub's scheduled runs are best-effort: they can start hours late or be skipped entirely,
+most often at the top of the hour. So the workflow has two backup slots (7:47 AM and 10:17 AM PST). Each one
+first checks whether a run already succeeded today (UTC) and exits in seconds if so, so a normal day still has
+exactly one real run. GitHub also pauses schedules in repos with no activity for 60 days; a push or a manual run
+re-enables them.
 
 **Public logs.** This repo is public, so its Actions logs are too. In CI the agent logs only counts and error
 types, and refers to people as `profile-1`, `profile-2`. It never prints briefs, search queries, job details or folder names.

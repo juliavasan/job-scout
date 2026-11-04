@@ -12,7 +12,7 @@ Jobs sheet that collects results and feedback. GitHub Actions is the scheduler, 
 
 ```mermaid
 flowchart LR
-    subgraph GH["GitHub Actions — daily cron 14:00 UTC"]
+    subgraph GH["GitHub Actions — daily cron 14:17 UTC + 2 backup slots"]
         CLI["python -m jobscout run --profile all"]
     end
 

@@ -3,10 +3,13 @@ name: Daily job scout
 on:
   schedule:
     # GitHub cron is UTC and ignores daylight saving time.
-    # 14:00 UTC = 6:00 AM PST (Nov–Mar) = 7:00 AM PDT (Mar–Nov).
-    # For 6:00 AM during PDT instead, use "0 13 * * *" (= 5:00 AM PST in winter).
-    # GitHub may start scheduled runs 5–30+ minutes late at busy times.
-    - cron: "0 14 * * *"
+    # 14:17 UTC = 6:17 AM PST (Nov–Mar) = 7:17 AM PDT (Mar–Nov).
+    # For ~6 AM during PDT instead, use "17 13 * * *" (= 5:17 AM PST in winter).
+    # GitHub scheduled runs are best-effort: they can start hours late or be skipped, most often on the hour.
+    # So there are two backup slots; each one exits right away if a run already succeeded today (UTC).
+    - cron: "17 14 * * *"
+    - cron: "47 15 * * *"
+    - cron: "17 18 * * *"
   workflow_dispatch:
     inputs:
       profile:
@@ -20,6 +23,7 @@ on:
 
 permissions:
   contents: read
+  actions: read   # lets the backup slots see whether today's run already succeeded
 
 concurrency:
   group: jobscout
@@ -30,13 +34,28 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
+      - name: Skip if today's run already succeeded (scheduled slots only)
+        id: guard
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [ "${{ github.event_name }}" != "schedule" ]; then echo "done=no" >> "$GITHUB_OUTPUT"; exit 0; fi
+          today=$(date -u +%F)
+          n=$(gh run list -R "$GITHUB_REPOSITORY" -w daily.yml --status success --limit 20 --json createdAt \
+                --jq "[.[] | select(.createdAt | startswith(\"$today\"))] | length")
+          if [ "$n" -gt 0 ]; then echo "Already ran successfully today; skipping."; echo "done=yes" >> "$GITHUB_OUTPUT"
+          else echo "done=no" >> "$GITHUB_OUTPUT"; fi
       - uses: actions/checkout@v4
+        if: steps.guard.outputs.done != 'yes'
       - uses: actions/setup-python@v5
+        if: steps.guard.outputs.done != 'yes'
         with:
           python-version: "3.11"
           cache: pip
       - run: pip install .
+        if: steps.guard.outputs.done != 'yes'
       - name: Install Claude Code (uses your Claude subscription instead of API credit)
+        if: steps.guard.outputs.done != 'yes'
         env:
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
         run: |
@@ -47,6 +66,7 @@ jobs:
             echo "No CLAUDE_CODE_OAUTH_TOKEN secret: falling back to the Anthropic API key."
           fi
       - name: Run
+        if: steps.guard.outputs.done != 'yes'
         env:
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
