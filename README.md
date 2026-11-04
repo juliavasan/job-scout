@@ -348,6 +348,22 @@ Optional limits (env vars / secrets): `JOBSCOUT_MAX_NEW_ROWS` (25), `JOBSCOUT_MA
   (`JOBSCOUT_MAX_LOOKUPS=0`). Company links come from career-site searches, which are free.
 - Budget: about 4 searches per person per run, so two people use about 240 of the free plan's 250 a month.
 
+## Security
+
+| Risk | What's in place |
+|---|---|
+| Secrets in a public repo | Keys live only in GitHub Secrets (and a gitignored `.env` locally). Logs print counts, never names, briefs or jobs. |
+| Who can run it | Only the schedule and people with write access. Pull requests from forks never get secrets; the job's own GitHub token is read-only. |
+| Google access | The service account can open only the folders shared with it, nothing else in anyone's Drive. |
+| Compromised dependencies | Everything the job downloads is pinned: GitHub Actions by commit SHA, Python packages by hash (`requirements.txt`, installed with `--require-hashes`), Claude Code by version + SHA-256. Dependabot proposes updates as pull requests. |
+| Prompt injection from job postings | Postings are passed as data. The judge runs with no tools, so a hostile posting can at most skew its own score. Sheet writes are RAW, so posting text can't become a formula. |
+| The agent editing its own brief | Learned rules are filtered before they're saved: one line, under 200 characters, must start with "Exclude"/"Skip"/"Avoid", no links, nothing instruction-like, at most 3 per run. A learned rule can only hide jobs, never widen the search or change other rules. |
+
+Regenerate the lock file after changing dependencies in `pyproject.toml`:
+`pip install pip-tools && pip-compile --generate-hashes --strip-extras --allow-unsafe -o requirements.txt pyproject.toml`.
+To update Claude Code in CI, change `CLAUDE_CODE_VERSION` and `CLAUDE_CODE_SHA256` in the workflow (the checksum is the
+`linux-x64` entry in `https://downloads.claude.ai/claude-code-releases/<version>/manifest.json`).
+
 ## Development
 
 ```bash

@@ -1,0 +1,13 @@
+# Proposes updates to the pinned GitHub Actions commits and to requirements.txt as pull requests.
+# Pull requests never receive this repo's secrets, and nothing merges without review.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+  - package-ecosystem: pip
+    directory: /
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 3
