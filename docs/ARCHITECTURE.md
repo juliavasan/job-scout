@@ -75,7 +75,7 @@ flowchart TD
     F --> G["Fetch: SerpApi Google Jobs<br/>+ watched companies' own career sites"]
     G --> H["Drop postings older than 7 days<br/>(90 for watched companies)"]
     H --> I["Dedup<br/>1. canonical URL<br/>2. company + title + location<br/>3. company + title marked Not a fit<br/>4. rejected in an earlier run"]
-    I --> J["Claude Sonnet: judge each candidate<br/>against brief + learned exclusions + best-matching resume<br/>→ validated JSON incl. best_resume"]
+    I --> J["Claude Sonnet: judge each candidate<br/>against brief + learned exclusions + best-matching resume<br/>+ your past Applied / Ignore decisions<br/>→ validated JSON incl. best_resume"]
     J --> K{"include AND<br/>score ≥ min?"}
     K -- no --> L["Record in _state as rejected<br/>so it isn't judged again"]
     K -- yes --> M["Sort by score, keep top 25"]
@@ -143,6 +143,13 @@ flowchart LR
 - The brief is updated with an **insert at the end** (Docs API), not a rewrite, so your text and formatting are never touched.
   It is re-read just before writing.
 
+## Two feedback loops
+
+| Loop | Signal | What changes | Guard |
+|---|---|---|---|
+| **Learned exclusions** | Ignore / Not a fit / highlight | a dated "Exclude …" rule appended to the Brief | filtered: short, Exclude-only, max 3 per run |
+| **Past decisions** | Applied (yes) and Ignore (no) ticks, with notes | the newest 10 + 10 shown to the judge as examples | the brief's rules win; the eval measures the effect on held-out jobs (`--examples sheet --compare`) |
+
 ## Code map
 
 ```
@@ -160,6 +167,7 @@ jobscout/
 │                       LinkResolver: company job URL + date opened + exact LinkedIn link, link verification
 ├── company_posting.py  is a URL the employer's own posting? schema.org datePosted from the page
 ├── linkedin.py         employer matching for URLs; exact LinkedIn /jobs/view/ links only
+├── memory.py           past decisions: Applied / Ignore ticks → judge examples; eval split helpers
 ├── eval_cases.py       freeze postings into the eval set; write the Eval tab for labelling
 ├── evaluation.py       eval runner (hash-locked), scoring with Wilson confidence intervals
 └── sources/
@@ -229,6 +237,7 @@ flowchart LR
     X -->|"generic scoring rule"| P["edit the judge prompt"]
     X -->|"cutoff"| M["JOBSCOUT_MIN_FIT_SCORE"]
     X -->|"label was wrong"| T
+    E2["past decisions<br/>(--examples sheet / split)"] -.->|"--compare: with vs without"| R
     B --> R
     P --> R
     M --> R

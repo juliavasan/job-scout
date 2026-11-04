@@ -15,7 +15,7 @@ their own folder, brief and sheet.
 | 🧠 **AI: Claude** | Claude Code on your subscription (Anthropic API as fallback): Sonnet 5.5 scores each job 1–10 against your brief + resumes; Haiku 5.5 turns the brief into searches; JSON output validated with Pydantic |
 | 📁 **Google Drive** | One folder per person: Brief (Doc), Jobs (Sheet with Applied / Ignore checkboxes), Resumes, Log; a service account with access to this folder only |
 | 👩‍💻 **You** | Edit the brief, tick Applied / Ignore, from phone or laptop |
-| 🔁 **Learns from you** | Ignore (or an orange highlight) → the next run adds a dated rule to your Brief; ignored jobs never come back |
+| 🔁 **Learns from you** | Applied / Ignore ticks become examples the judge sees on the next run; Ignore (or an orange highlight) also adds a dated rule to your Brief; ignored jobs never come back |
 | 📏 **Eval** | Your own Fit / Not fit labels on frozen real postings; measures the judge's agreement, precision and recall before and after every change ([Evaluation](#evaluation-is-the-judge-right)) |
 
 More detail (flows, data model, design notes): [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
@@ -262,6 +262,18 @@ of a few resumes adds little cost.
    learned line. If you delete one, it won't come back unless you write new feedback that says the same thing.
 4. Jobs marked `Not a fit` are never re-added, even if the same company reposts the same title in another city.
 
+### Past decisions: the self-improvement loop
+
+Every job you tick becomes an example for the judge on the next run: **Applied** (or Status `Applied`) = yes,
+**Ignore** / `Not a fit` / highlighted = no, with your **My feedback** note if you wrote one. The newest 10 of each go
+into the judge's prompt as a `<past_decisions>` block, next to your brief. The brief's rules always win. The examples
+help with the gray zone the brief doesn't spell out, and with calibrating the score. So the more you tick, the closer
+the judge gets to your taste, without you rewriting the brief.
+
+Is it actually helping? The [eval](#evaluation-is-the-judge-right) measures it on jobs the judge was never shown:
+`python -m jobscout eval --profile <name> --examples sheet --compare` scores the same labelled cases with and without
+your past decisions (eval cases are kept out of the examples).
+
 ## Dedup rules
 
 A posting is skipped if any of these is true (rows in **"Jobs archive …"** tabs count too, so archived jobs never come back):
@@ -368,6 +380,11 @@ confidence interval, the "always say not fit" baseline, and a confusion matrix. 
 and the exact prompts go to `.claude/hillclimb/judge/<variant>/`. A case counts as kept on the same rule as the daily run
 (include **and** score ≥ `JOBSCOUT_MIN_FIT_SCORE`). It runs offline: one judge call per case per rep, 0 SerpApi
 searches, nothing written to the Jobs tab.
+
+**Measuring the self-improvement loop:** add `--examples sheet --compare` to score the same cases with and without
+your [past decisions](#past-decisions-the-self-improvement-loop). Eval cases are never shown as examples. Before you
+have many ticks, `--examples split --compare` uses half of your labelled cases as examples and tests on the other half
+(a small, noisy set: read the confidence intervals).
 
 **How to use it:** run a baseline, then after every change to the brief, the judge prompt, the threshold or the model,
 run again with `--variant <name>` and compare. Keep the change only if recall doesn't drop. Read the judge's reason on

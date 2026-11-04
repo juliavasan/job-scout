@@ -7,6 +7,12 @@ Output: .claude/hillclimb/judge/<variant>/results.jsonl, traces/<case>_rep<k>.js
 
 A case "keeps" when the judge says include AND fit_score >= the profile's min_fit_score — the same rule the
 daily run uses. Positive class = "Fit".
+
+Past decisions (memory.py) can be shown to the judge, as in the daily run:
+  examples="none"   no examples (baseline)
+  examples="sheet"  the person's Applied / Ignore ticks from the Jobs tab, minus any job that is also an eval case
+  examples="split"  half of the labelled cases become examples, the other half is the test (stratified, fixed seed)
+Eval cases are never shown to the judge as examples of themselves, so the score measures generalization.
 """
 from __future__ import annotations
 
@@ -21,6 +27,7 @@ from datetime import date
 from pathlib import Path
 
 from . import llm as L
+from . import memory
 from .models import RawJob
 
 log = logging.getLogger(__name__)
@@ -90,8 +97,28 @@ def _job(c: dict) -> RawJob:
 
 # ---------- running ----------
 
+def pick_cases_and_examples(store, all_cases: list[dict], labels: dict, examples: str, test_half: bool):
+    """(cases to test, examples to show). See the module docstring for the modes."""
+    labelled = [c for c in all_cases if c["case_id"] in labels]
+    if examples == "split" or test_half:
+        train, test = memory.split_labelled(labelled, labels)
+    else:
+        train, test = [], labelled
+    if examples == "split":
+        past = memory.select(memory.from_eval_cases(train, labels))
+    elif examples == "sheet":
+        eval_keys = {memory.decision_key(c.get("company", ""), c.get("title", ""), c.get("location", "")) for c in all_cases}
+        past = memory.select(memory.from_sheet_rows(store.read_jobs(), store.read_flagged_rows()), exclude_keys=eval_keys)
+    elif examples == "none":
+        past = []
+    else:
+        raise SystemExit(f"unknown --examples {examples!r} (none, sheet, split)")
+    return test, past
+
+
 def run_eval(store, profile, variant: str = "baseline", reps: int = 1, limit: int | None = None,
-             workers: int = 4, timeout_s: int = 600, only: list[str] | None = None) -> dict:
+             workers: int = 4, timeout_s: int = 600, only: list[str] | None = None,
+             examples: str = "none", test_half: bool = False) -> dict:
     vdir = FLOW_DIR / variant
     (vdir / "traces").mkdir(parents=True, exist_ok=True)
     state_file = FLOW_DIR / "_state.json"
@@ -102,7 +129,8 @@ def run_eval(store, profile, variant: str = "baseline", reps: int = 1, limit: in
     resumes = store.read_resumes()
     brief_sha = hashlib.sha256(brief.encode()).hexdigest()[:10]
     labels = load_labels(store)
-    cases = [c for c in load_cases() if c["case_id"] in labels and (not only or c["case_id"] in only)]
+    cases, past = pick_cases_and_examples(store, load_cases(), labels, examples, test_half)
+    cases = [c for c in cases if not only or c["case_id"] in only]
     if limit:
         cases = cases[:limit]
 
@@ -115,16 +143,17 @@ def run_eval(store, profile, variant: str = "baseline", reps: int = 1, limit: in
     todo = [(c, k) for c in cases for k in range(reps) if (c["case_id"], k) not in done]
     lock = threading.Lock()
     print(f"eval '{variant}': {len(cases)} labelled cases × {reps} rep(s); {len(todo)} to run "
-          f"({len(done)} already done); brief {brief_sha}, {len(resumes)} resumes")
+          f"({len(done)} already done); brief {brief_sha}, {len(resumes)} resumes, "
+          f"{len(past)} past decisions shown ({examples})")
 
     def one(item):
         c, k = item
         job = _job(c)
         claude = L.Claude()
         t0 = time.monotonic()
-        system, user = L.judge_prompts(brief, job, resumes)
+        system, user = L.judge_prompts(brief, job, resumes, past)
         try:
-            j = L.judge(claude, brief, job, resumes)
+            j = L.judge(claude, brief, job, resumes, past)
         except Exception as e:
             row = {"prompt_id": c["case_id"], "rep": k, "failure_class": "harness_or_serving_error",
                    "error": f"{type(e).__name__}: {str(e)[:300]}", "model": claude.last_model, "usage": claude.last_raw_usage}
@@ -157,7 +186,8 @@ def run_eval(store, profile, variant: str = "baseline", reps: int = 1, limit: in
             "fit_score": j.fit_score, "latency_s": round(latency, 2),
             "model": served or L.JUDGE_MODEL, "usage": claude.last_raw_usage,
             "cost_usd_list_price": round(claude.usage["cost_usd"], 5),
-            "meta": {"brief_sha": brief_sha, "backend": claude.backend, "your_note": labels[c["case_id"]]["note"]},
+            "meta": {"brief_sha": brief_sha, "backend": claude.backend, "your_note": labels[c["case_id"]]["note"],
+                     "examples": examples, "n_examples": len(past)},
         }
         with lock, results_path.open("a") as f:
             f.write(json.dumps(row) + "\n")
@@ -229,3 +259,14 @@ def format_summary(s: dict) -> str:
             f"  specificity     : {f('specificity')}\n"
             f"  confusion       : kept&fit {c['tp']} · kept&not-fit {c['fp']} · skipped&fit {c['fn']} · skipped&not-fit {c['tn']}\n"
             f"  latency         : {s['mean_latency_s']}s/case avg · list-price equivalent ${s['list_price_usd']}")
+
+
+def format_delta(a: dict, b: dict) -> str:
+    """b minus a, in percentage points, for the headline metrics."""
+    def pt(m):
+        va, vb = a[m]["value"], b[m]["value"]
+        return "n/a" if va is None or vb is None else f"{(vb - va) * 100:+.0f} pts ({va:.0%} → {vb:.0%})"
+    return (f"[{b['variant']} vs {a['variant']}] same {b['cases']} judgments\n"
+            f"  agreement   : {pt('accuracy')}\n  precision   : {pt('precision')}\n"
+            f"  recall      : {pt('recall')}\n  specificity : {pt('specificity')}\n"
+            "  (small sets swing a lot: check the confidence intervals above before calling it a win)")

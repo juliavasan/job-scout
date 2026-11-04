@@ -318,10 +318,20 @@ def cmd_eval(args) -> int:
     (name, folder_id), = _profiles(drive, args.profile)
     files, _ = setup_profile(drive, name, folder_id)
     store = DriveProfileStore(drive, files)
-    s = E.run_eval(store, Profile.from_env(name, folder_id), variant=args.variant, reps=args.reps,
-                   limit=args.limit, workers=args.workers, timeout_s=args.timeout_s,
-                   only=args.cases.split(",") if args.cases else None)
-    print(E.format_summary(s) + f"\n  wall clock      : {s['wall_clock_s']}s")
+    prof = Profile.from_env(name, folder_id)
+    common = dict(reps=args.reps, limit=args.limit, workers=args.workers, timeout_s=args.timeout_s,
+                  only=args.cases.split(",") if args.cases else None)
+    if not args.compare:
+        s = E.run_eval(store, prof, variant=args.variant, examples=args.examples, **common)
+        print(E.format_summary(s) + f"\n  wall clock      : {s['wall_clock_s']}s")
+        return 0
+    # Same test cases, with and without past decisions: did the examples help?
+    if args.examples == "none":
+        raise SystemExit("--compare needs --examples sheet or --examples split")
+    half = args.examples == "split"
+    a = E.run_eval(store, prof, variant=f"{args.variant}-no-examples", examples="none", test_half=half, **common)
+    b = E.run_eval(store, prof, variant=f"{args.variant}-{args.examples}", examples=args.examples, test_half=half, **common)
+    print(E.format_summary(a) + "\n\n" + E.format_summary(b) + "\n\n" + E.format_delta(a, b))
     return 0
 
 
@@ -372,6 +382,10 @@ def main(argv: list[str] | None = None) -> int:
     e.add_argument("--workers", type=int, default=4)
     e.add_argument("--timeout-s", type=int, default=600)
     e.add_argument("--approve-harness", action="store_true", help="approve the current eval runner (you, after reviewing it)")
+    e.add_argument("--examples", choices=["none", "sheet", "split"], default="none",
+                   help="past decisions shown to the judge: none; sheet = your Applied/Ignore ticks; "
+                        "split = half the labelled cases as examples, tested on the other half")
+    e.add_argument("--compare", action="store_true", help="run the same test cases with and without examples, show the change")
     e.set_defaults(func=cmd_eval)
 
     c = sub.add_parser("eval-cases", help="freeze postings from a run into the eval set and write the Eval tab for labelling")

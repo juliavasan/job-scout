@@ -8,7 +8,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 
-from . import linkedin
+from . import linkedin, memory
 from .careers import NOT_FOUND, LinkResolver
 from . import llm as L
 from .config import ConfigError, Profile
@@ -130,6 +130,10 @@ def run_profile(
                                 "why": r.get("Why it fits", ""), "concerns": r.get("Concerns / red flags", ""),
                                 "industry": r.get("Company type / industry", ""), "feedback": fb})
                 pending_keys.append(key)
+    # 1b) Past decisions (Applied = yes, Ignore / Not a fit / highlighted = no) -> examples for the judge
+    past = memory.select(memory.from_sheet_rows(rows, flagged))
+    log.info("[%s] past decisions shown to the judge: %d yes, %d no", profile.name,
+             sum(d.verdict == "yes" for d in past), sum(d.verdict == "no" for d in past))
     state_rows: list[list[str]] = []
     if pending and not replay:
         try:
@@ -209,7 +213,7 @@ def run_profile(
     # 4) Judge
     def _judge(job: RawJob):
         try:
-            return job, L.judge(claude, brief, job, resumes), None
+            return job, L.judge(claude, brief, job, resumes, past), None
         except Exception as e:
             return job, None, f"{type(e).__name__}: {str(e)[:120]}"
 

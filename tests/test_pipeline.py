@@ -51,7 +51,7 @@ def fake_llm(monkeypatch):
 
     monkeypatch.setattr(L, "plan_searches", lambda c, b, n, r=None: SearchPlan(queries=[SearchQuery("data engineer remote")]))
 
-    def judge(c, brief, job, resumes=None):
+    def judge(c, brief, job, resumes=None, past=None):
         calls["judge"] += 1
         bad = "agency" in job.company.lower() or ("sales" in job.title.lower() and "sales-heavy" in brief)
         return L.Judgment(include=not bad, fit_score=8 if not bad else 2, exclusion_reason="agency" if bad else "",

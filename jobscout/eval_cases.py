@@ -14,8 +14,8 @@ import shutil
 from datetime import date
 from pathlib import Path
 
-from .dedup import company_title_key
 from .evaluation import FLOW_DIR
+from .memory import decision_key
 
 EVAL_TAB = "Eval"
 EVAL_COLUMNS = ["Case", "Your label", "Note (optional)", "Job title", "Company", "Location", "Salary (as posted)",
@@ -24,7 +24,7 @@ LABEL_CHOICES = ["Fit", "Not fit", "Unsure"]
 
 
 def _key(c: dict) -> str:
-    return company_title_key(c.get("company", ""), c.get("title", "")) + "|" + (c.get("location") or "").split(",")[0].strip().lower()
+    return decision_key(c.get("company", ""), c.get("title", ""), c.get("location", ""))
 
 
 def build_cases(candidates: list[dict], n: int = 45, seed: int = 7) -> list[dict]:
