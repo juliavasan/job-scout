@@ -18,7 +18,7 @@ flowchart LR
 
     subgraph SECRETS["GitHub Secrets"]
         direction TB
-        S1["ANTHROPIC_API_KEY"]
+        S1["CLAUDE_CODE_OAUTH_TOKEN"]
         S2["SERPAPI_API_KEY"]
         S3["GOOGLE_SERVICE_ACCOUNT_JSON"]
         S4["JOBSCOUT_ROOT_FOLDER_ID"]
@@ -29,7 +29,7 @@ flowchart LR
         subgraph P1["alex/"]
             B1["Brief (Google Doc)<br/>search brief + learned exclusions"]
             R1["Resumes/ (optional)<br/>resumes already sent:<br/>Doc · PDF · docx · txt"]
-            J1["Jobs (Google Sheet)<br/>Jobs · Log · _state tabs"]
+            J1["Jobs (Google Sheet)<br/>Jobs · Log · Eval · _state tabs"]
         end
         subgraph P2["friend/"]
             B2["Brief"]
@@ -42,7 +42,7 @@ flowchart LR
         ATS["Company career sites<br/>Workday · Eightfold · Greenhouse<br/>Lever · Ashby · SmartRecruiters"]
     end
 
-    subgraph CLAUDE["Anthropic API"]
+    subgraph CLAUDE["Claude (via Claude Code on a subscription; API as fallback)"]
         HAIKU["Haiku 5.5<br/>brief → search queries"]
         SONNET["Sonnet 5.5<br/>judge fit · learn exclusions"]
         WEB["Sonnet 5.5 + web search<br/>company facts"]
@@ -67,13 +67,13 @@ a folder with a `Brief` doc and an empty `Jobs` sheet. There's no config file an
 flowchart TD
     A["List subfolders of the root folder → one profile each"] --> A2["Find Brief doc + Jobs sheet;<br/>add missing tabs/headers"]
     A2 --> B["Read the brief, resume library, all Jobs rows, _state"]
-    B --> C{"New 'Not a fit' rows<br/>with feedback?"}
+    B --> C{"New Ignore / Not a fit<br/>rows?"}
     C -- yes --> D["Claude: turn feedback into<br/>general exclusion rules"]
-    D --> E["Append dated rules to the end<br/>of the Brief doc"]
+    D --> D2["Filter: keep only short<br/>'Exclude …' rules, max 3"] --> E["Append dated rules to the end<br/>of the Brief doc"]
     C -- no --> F
     E --> F["Claude Haiku: brief + resumes → 3–4 search queries<br/>+ title keywords"]
     F --> G["Fetch: SerpApi Google Jobs<br/>+ watched companies' own career sites"]
-    G --> H["Drop postings older than 7 days<br/>(30 for watched companies)"]
+    G --> H["Drop postings older than 7 days<br/>(90 for watched companies)"]
     H --> I["Dedup<br/>1. canonical URL<br/>2. company + title + location<br/>3. company + title marked Not a fit<br/>4. rejected in an earlier run"]
     I --> J["Claude Sonnet: judge each candidate<br/>against brief + learned exclusions + best-matching resume<br/>→ validated JSON incl. best_resume"]
     J --> K{"include AND<br/>score ≥ min?"}
@@ -93,7 +93,7 @@ sequenceDiagram
     autonumber
     participant CLI as jobscout CLI
     participant G as Google Drive / Docs / Sheets
-    participant C as Claude API
+    participant C as Claude
     participant SA as SerpApi
     participant ATS as ATS boards
 
@@ -147,22 +147,25 @@ flowchart LR
 
 ```
 jobscout/
-├── cli.py              setup / run / template commands; isolates profiles; CI-safe logging
+├── cli.py              setup / run / eval-cases / eval / template commands; isolates profiles; CI-safe logging
 ├── config.py           env-based settings, service-account credentials, Profile
 ├── models.py           RawJob dataclass, sheet column layout, tab names
 ├── pipeline.py         run_profile(): the steps above, plus RunReport
-├── llm.py              Claude wrapper (structured JSON, Pydantic validation, pause_turn,
-│                       refusal fallback) and the 4 tasks: plan / judge / facts / learn
+├── llm.py              Claude wrapper (Claude Code CLI or API; structured JSON, Pydantic validation, refusal
+│                       fallback), the tasks (plan / judge / facts / learn / link lookups), learned-rule filter
 ├── dedup.py            canonical_url(), job_key(), company_title_key()
 ├── google_io.py        Drive (list, read/append brief, resume text extraction), profile discovery,
-│                       sheet layout, DriveProfileStore
+│                       sheet layout, run lock, DriveProfileStore
+├── careers.py          ATS detection (Workday, Eightfold, Greenhouse, Lever, Ashby, SmartRecruiters), ATS search,
+│                       LinkResolver: company job URL + date opened + exact LinkedIn link, link verification
+├── company_posting.py  is a URL the employer's own posting? schema.org datePosted from the page
+├── linkedin.py         employer matching for URLs; exact LinkedIn /jobs/view/ links only
+├── eval_cases.py       freeze postings into the eval set; write the Eval tab for labelling
+├── evaluation.py       eval runner (hash-locked), scoring with Wilson confidence intervals
 └── sources/
     ├── base.py         Source ABC, SearchPlan, date parsing
-    ├── serpapi_google_jobs.py   Google Jobs → RawJob; prefers LinkedIn apply link
+    ├── serpapi_google_jobs.py   Google Jobs → RawJob; picks the best apply link
     └── company_sites.py         watched companies' own career sites + watchlist parsing
-careers.py              ATS detection (Workday, Eightfold, Greenhouse, Lever, Ashby, SmartRecruiters), ATS search,
-                        LinkResolver: company job URL + date opened + exact LinkedIn link, link verification
-linkedin.py             LinkedIn link helpers (exact /jobs/view/ only, employer check)
 ```
 
 | Module | Depends on | Talks to |
@@ -182,13 +185,16 @@ company preferences, nice-to-haves, "Don't show me", optional "Companies to watc
 then the auto-maintained "Learned exclusions".
 
 **Jobs tab** (append-only, read by header name so you can add your own columns on the right):
-Date added · Fit score · Job title · Company · Why it fits · Concerns · Location · Work mode ·
+**Applied** ☐ · **Ignore** ☐ · Date added · Fit score · Job title · Company · Why it fits · Concerns · Location · Work mode ·
 Employment type · Seniority · Salary range · Equity mentioned · Posted date · Company type/industry ·
 Company size · Funding stage · HQ · Company description · Job URL · Company website · Source ·
-**Status** (New / Interested / Applied / Not a fit) · **My feedback** · **Best resume**
+**Status** (New / Interested / Applied / Not a fit) · **My feedback** · **Best resume** · LinkedIn URL ·
+Company job URL · Date opened
 (new columns are only ever added at the end; `setup` adds them to existing sheets automatically)
 
 **Log tab**: Run at (UTC) · Found · Added · Skipped: duplicate · Skipped: excluded/low score · Skipped: over cap · New learned exclusions · Errors
+
+**Eval tab** (only if you use the eval): Case · Your label (Fit / Not fit / Unsure) · Note · the posting's title, company, location, salary, link
 
 **_state tab** (hidden): Kind (`feedback_processed` / `rejected` / `ats`) · Key · Date · Value (the ATS cache maps company → careers system)
 
@@ -199,11 +205,42 @@ Company size · Funding stage · HQ · Company description · Job URL · Company
 | `plan_searches` | Haiku 5.5 | brief + resume library | `QueryPlan{queries[], title_keywords[]}` |
 | `judge` | Sonnet 5.5, effort low | brief + resume library (cached system prompt) + one posting | `Judgment{include, fit_score 1–10, exclusion_reason, why_it_fits, concerns, work_mode, salary_range, equity_mentioned, best_resume, ...}` |
 | `company_facts` | Sonnet 5.5 + `web_search` (≤4 searches) | company, job links, excerpt | `CompanyFacts{industry, size, funding, hq, description, website}`, "unknown" if not found |
-| `learn_exclusions` | Sonnet 5.5 | brief + new feedback rows | `LearnedPatterns{new_exclusions[]}` |
+| `learn_exclusions` | Sonnet 5.5 | brief + new feedback rows | `LearnedPatterns{new_exclusions[]}`, then filtered to short "Exclude …" rules |
+| `find_careers_site` / `find_company_posting` | Sonnet 5.5 + `web_search` | company (+ title) | a URL, verified in code; only when the careers system isn't known, capped per run |
+
+A typical daily run makes ~35–40 calls: 1 plan, 1 judge per new posting, 1 facts lookup per new company, and
+`learn_exclusions` only when there's new feedback.
 
 All calls use structured outputs (`output_config.format` with a strict JSON schema generated from the
 Pydantic model). A response that fails validation is retried once. Postings, search results and feedback
 are framed as data in every prompt, never as instructions.
+
+## Evaluation
+
+```mermaid
+flowchart LR
+    C["logs/candidates_name.json<br/>(all postings found, before judging)"] -->|"eval-cases"| F["45 frozen cases<br/>cases.jsonl (private)"]
+    F --> T["Eval tab"]
+    T -->|"you label blind:<br/>Fit / Not fit / Unsure"| L["labels"]
+    L -->|"eval --reps 3"| R["judge() on each case,<br/>same prompt + brief as the daily run"]
+    R --> S["agreement · precision · recall · specificity<br/>95% CIs, vs 'always not fit' baseline"]
+    S -->|"read the misses"| X{"cause?"}
+    X -->|"vague rule"| B["edit the Brief"]
+    X -->|"generic scoring rule"| P["edit the judge prompt"]
+    X -->|"cutoff"| M["JOBSCOUT_MIN_FIT_SCORE"]
+    X -->|"label was wrong"| T
+    B --> R
+    P --> R
+    M --> R
+```
+
+- The eval tests one decision, keep or skip, on the same rule as the daily run. It never writes to the Jobs tab
+  and uses no SerpApi searches. Each change is rerun as a new `--variant` and kept only if recall holds.
+- Cases include postings the agent rejected. The Jobs tab only shows kept jobs, so feedback from it alone can't
+  measure recall.
+- The runner (`evaluation.py`) is hash-locked: after any change to it, a person has to approve it
+  (`--approve-harness`) before it runs, so the grader can't drift along with the thing it grades.
+- Labels and cases stay private (gitignored folder + the person's own sheet); only the code is public.
 
 ## Reliability and limits
 
@@ -213,8 +250,9 @@ are framed as data in every prompt, never as instructions.
 | One source fails | Recorded in Log → Errors; other sources still used |
 | One judge call fails | Skipped; the posting is not recorded as rejected, so it gets another chance tomorrow |
 | Cost runaway | ≤4 searches, ≤80 judged, ≤25 added per profile per run; rejected postings and known companies remembered |
-| Duplicate cron runs | `concurrency: jobscout` in the workflow; dedup makes reruns safe anyway |
-| DST | Cron is UTC: 6 AM PST / 7 AM PDT (see README) |
+| Duplicate runs | `concurrency: jobscout` in the workflow, a run lock in `_state` (local + cloud), and dedup makes reruns safe anyway |
+| GitHub skips a scheduled run | Two backup cron slots; each exits immediately if a run already succeeded that day |
+| DST | Cron is UTC: 6:17 AM PST / 7:17 AM PDT (see README) |
 
 ## Security and privacy
 
@@ -225,7 +263,7 @@ flowchart LR
         LOGS["CI logs: counts and error types,<br/>people shown as profile-1, profile-2"]
     end
     subgraph PRIVATE["Private"]
-        SEC["GitHub Secrets:<br/>API keys, service-account key,<br/>root folder ID"]
+        SEC["GitHub Secrets:<br/>Claude token, SerpApi key,<br/>service-account key, root folder ID"]
         DRV["Google Drive 'Job Scout' folder:<br/>briefs, salary, feedback, results"]
         LOCAL[".env, secrets/ (gitignored)"]
     end
@@ -235,7 +273,9 @@ flowchart LR
 
 - **Least privilege:** the service account has no access to anything except the folder you share with it. Un-sharing the folder revokes access immediately.
 - **No personal data in the repo:** profiles are discovered from Drive at runtime. There's no `profiles.yaml` and no names or IDs in code.
-- **Prompt-injection hygiene:** postings and web pages are untrusted input. Prompts label them as data, outputs are schema-constrained, and the agent can only append rows (it can't delete anything).
+- **Prompt-injection hygiene:** postings and web pages are untrusted input. Prompts label them as data, outputs are schema-constrained, the judge runs with no tools, sheet writes are RAW (no formulas), and the agent can only append rows (it can't delete anything).
+- **Self-edits are constrained:** rules learned from feedback must be short, single-line "Exclude …" rules with no links or instruction-like text (max 3 per run), so a learned rule can only hide jobs.
+- **Pinned supply chain:** the workflow pins GitHub Actions by commit SHA, installs Python packages with `--require-hashes`, and installs a fixed Claude Code version checked against its SHA-256. Dependabot proposes updates.
 
 ## Extending
 

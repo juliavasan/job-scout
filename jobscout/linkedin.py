@@ -1,16 +1,11 @@
-"""LinkedIn URL for each job, without ever logging in to or fetching LinkedIn.
+"""Employer matching for job URLs, and the LinkedIn URL for each job, without ever logging in to or fetching LinkedIn.
 
-Order of preference:
-1. a LinkedIn apply link Google Jobs already returned (checked to belong to the right employer)
-2. optional (JOBSCOUT_LINKEDIN_SEARCH=1): a linkedin.com/jobs/view/... posting found by Claude's web search.
-   Off by default: postings from the last few days are rarely in the web index yet, so it mostly costs money.
-3. a LinkedIn job-search link for "<title> <company>" (always works; you land on the results)
+The LinkedIn URL is the exact linkedin.com/jobs/view/... link when Google Jobs returned one for the right employer,
+otherwise "not found". (A LinkedIn search link was tried and dropped: it rarely lands on the posting.)
 """
 from __future__ import annotations
 
-import os
 import re
-from urllib.parse import quote_plus
 
 from .dedup import canonical_url, normalize_company
 
@@ -42,37 +37,14 @@ def posting_from_urls(urls: list[str], company: str) -> str:
     return ""
 
 
-SEARCH_ENABLED = os.environ.get("JOBSCOUT_LINKEDIN_SEARCH", "").lower() in ("1", "true", "yes")
 _NOISE = re.compile(r"(^|\s[-–|]\s*|\()\s*(remote|hybrid|on-?site|us|usa|united states)\s*(\)|\s*[-–|]\s|$)", re.I)
-_CO_SUFFIX = re.compile(r",?\s+(inc\.?|incorporated|corp\.?|corporation|llc|ltd\.?|co\.?|company|plc)$", re.I)
 
 
 def core_title(title: str) -> str:
-    """'Senior Data Engineer, Payments - Remote' -> 'Senior Data Engineer'. LinkedIn search needs every keyword to match,
-    so long titles with team names usually return no results."""
+    """'Senior Data Engineer, Payments - Remote' -> 'Senior Data Engineer'. Career-site searches match every keyword,
+    so long titles with team names usually return nothing."""
     t = re.sub(r"\([^)]*\)", " ", title)
     t = _NOISE.sub(" ", t).strip(" -–|")
     t = re.split(r"\s*[,|–]\s*|\s+-\s+|\s+/\s+", t)[0]
     return re.sub(r"\s+", " ", t).strip() or title.strip()
 
-
-def search_url(title: str, company: str) -> str:
-    """LinkedIn job search for the core title at this company."""
-    c = _CO_SUFFIX.sub("", company.strip())
-    return f"https://www.linkedin.com/jobs/search/?keywords={quote_plus(f'{core_title(title)} {c}'.strip())}"
-
-
-def resolve(claude, title: str, company: str, location: str, known_urls: list[str]) -> tuple[str, str]:
-    """Return (url, kind) where kind is 'posting', 'found' or 'search'."""
-    url = posting_from_urls(known_urls, company)
-    if url:
-        return url, "posting"
-    if claude is not None and SEARCH_ENABLED:
-        from . import llm as L
-        try:
-            found = L.find_linkedin_posting(claude, title, company, location)
-        except Exception:
-            found = ""
-        if found and _VIEW.search(found) and matches_company(found, company):
-            return canonical_url(found), "found"
-    return search_url(title, company), "search"

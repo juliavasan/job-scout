@@ -28,7 +28,7 @@ from google.auth.transport.requests import AuthorizedSession
 from google.oauth2.service_account import Credentials
 
 from .models import (
-    CHECKBOX_COLUMNS, JOBS_COLUMNS, LEARNED_HEADER, LOG_COLUMNS, RUNLOG_COLUMNS, RUNLOG_TAB, STATE_COLUMNS, STATUS_VALUES,
+    CHECKBOX_COLUMNS, JOBS_COLUMNS, LOG_COLUMNS, RUNLOG_COLUMNS, RUNLOG_TAB, STATE_COLUMNS, STATUS_VALUES,
     TAB_JOBS, TAB_LOG, TAB_STATE,
 )
 
@@ -495,21 +495,6 @@ class DriveProfileStore:
                 "range": {"sheetId": ws.id, "startRowIndex": start - 1, "endRowIndex": end,
                           "startColumnIndex": header.index(c), "endColumnIndex": header.index(c) + 1},
                 "rule": {"condition": {"type": "BOOLEAN"}, "showCustomUi": True}}} for c in CHECKBOX_COLUMNS if c in header]})
-
-    def fill_empty_cells(self, column: str, values: dict[int, str], replace: tuple[str, ...] = ()) -> int:
-        """Write values into EMPTY cells of one agent-owned column (or cells holding one of the agent's own
-        placeholders listed in `replace`). values: {sheet row number: value}."""
-        ws = self._ws(TAB_JOBS)
-        header = ws.row_values(1)
-        col = header.index(column) + 1
-        current = ws.col_values(col)
-        def writable(r: int) -> bool:
-            return r > len(current) or not current[r - 1].strip() or current[r - 1].strip() in replace
-
-        cells = [gspread.Cell(r, col, v) for r, v in values.items() if v and writable(r)]
-        if cells:
-            ws.update_cells(cells, value_input_option="RAW")
-        return len(cells)
 
     def append_run_log(self, row: list) -> None:
         """Detailed run row in the optional separate 'Log' spreadsheet (no-op if there isn't one)."""

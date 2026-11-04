@@ -91,7 +91,7 @@ class CompanySites(Source):
         for entry in plan.ats_boards:
             ats = self._ats(entry)
             if ats is None:
-                self.errors.append(f"careers site not found for a watched company")
+                self.errors.append("careers site not found for a watched company")
                 continue
             company = _display_name(entry, ats)
             postings, seen = [], set()

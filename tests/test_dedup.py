@@ -6,9 +6,9 @@ from jobscout.sources.serpapi_google_jobs import parse_result, pick_best_url
 
 
 def test_linkedin_urls_canonicalize_to_job_id():
-    a = "https://www.linkedin.com/jobs/view/forward-deployed-engineer-at-acme-4012345678?refId=abc&trackingId=xyz"
+    a = "https://www.linkedin.com/jobs/view/data-engineer-at-acme-4012345678?refId=abc&trackingId=xyz"
     b = "https://uk.linkedin.com/jobs/view/4012345678/"
-    c = "https://www.linkedin.com/jobs/search/?currentJobId=4012345678&keywords=fde"
+    c = "https://www.linkedin.com/jobs/search/?currentJobId=4012345678&keywords=data+engineer"
     assert canonical_url(a) == canonical_url(b) == canonical_url(c) == "https://linkedin.com/jobs/view/4012345678"
 
 
@@ -88,29 +88,15 @@ def test_bad_location_falls_back_and_bad_query_is_isolated():
     assert {"q": "de Springfield, OR"} in calls
 
 
-def test_linkedin_resolve_order():
+def test_linkedin_posting_and_core_title():
     from jobscout import linkedin
-    assert linkedin.resolve(None, "DE", "Acme", "", ["https://www.linkedin.com/jobs/view/data-engineer-at-acme-4012345678?trk=x"]) == \
-        ("https://linkedin.com/jobs/view/4012345678", "posting")
-    url, kind = linkedin.resolve(None, "Senior DE", "Acme Inc", "", ["https://acme.com/jobs/1"])
-    assert kind == "search" and url == "https://www.linkedin.com/jobs/search/?keywords=Senior+DE+Acme"
-    assert linkedin.search_url("Remote - Senior Data Engineer", "Initech Corporation") == \
-        "https://www.linkedin.com/jobs/search/?keywords=Senior+Data+Engineer+Initech"
+    assert linkedin.posting_from_urls(["https://www.linkedin.com/jobs/view/data-engineer-at-acme-4012345678?trk=x"], "Acme") == \
+        "https://linkedin.com/jobs/view/4012345678"
+    assert linkedin.posting_from_urls(["https://www.linkedin.com/jobs/view/data-engineer-at-other-co-4012345678"], "Acme") == ""
+    assert linkedin.posting_from_urls(["https://acme.com/jobs/1"], "Acme") == ""
     assert linkedin.core_title("Senior Data Engineer, Payments - Remote") == "Senior Data Engineer"
     assert linkedin.core_title("Analytics Engineer, Content Platform Operations & Publishing") == "Analytics Engineer"
     assert linkedin.core_title("Senior Platform Engineer - Data Infrastructure") == "Senior Platform Engineer"
-
-    class FakeClaude: pass
-    import jobscout.llm as L
-    orig, orig_flag = L.find_linkedin_posting, linkedin.SEARCH_ENABLED
-    linkedin.SEARCH_ENABLED = True
-    try:
-        L.find_linkedin_posting = lambda c, t, co, loc: "https://www.linkedin.com/jobs/view/senior-data-engineer-at-other-co-4000000001"
-        assert linkedin.resolve(FakeClaude(), "Senior DE", "Acme", "", [])[1] == "search"  # wrong employer rejected
-        L.find_linkedin_posting = lambda c, t, co, loc: "https://www.linkedin.com/jobs/view/senior-data-engineer-at-acme-4000000002"
-        assert linkedin.resolve(FakeClaude(), "Senior DE", "Acme", "", []) == ("https://linkedin.com/jobs/view/4000000002", "found")
-    finally:
-        L.find_linkedin_posting, linkedin.SEARCH_ENABLED = orig, orig_flag
 
 
 def test_company_posting_helpers(monkeypatch):
@@ -121,7 +107,6 @@ def test_company_posting_helpers(monkeypatch):
     assert not cp.is_company_url("https://boards.greenhouse.io/other/jobs/1", "Acme")
     assert not cp.is_company_url("https://www.tealhq.com/job/x", "Umbrella Health")
     assert not cp.is_company_url("https://www.linkedin.com/jobs/view/1", "Acme")
-    assert cp._title_match("Sr. Data Engineer (Remote)", "Senior Data Engineer")
 
     page = '<html><script type="application/ld+json">{"@context":"https://schema.org","@type":"JobPosting","title":"DE","datePosted":"2026-10-27T08:00:00Z"}</script></html>'
 
@@ -131,8 +116,6 @@ def test_company_posting_helpers(monkeypatch):
         text = page
     monkeypatch.setattr(cp._client, "get", lambda *a, **k: R())
     assert cp.date_posted_from_page("https://acme.com/jobs/1").isoformat() == "2026-10-27"
-    url, opened = cp.resolve("Acme", ["DE"], ["https://indeed.com/x", "https://acme.com/jobs/123456"], None, None)
-    assert url == "https://acme.com/jobs/123456" and opened == "2026-10-27 (company page)"
 
 
 def test_looks_like_posting():

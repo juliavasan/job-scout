@@ -308,61 +308,6 @@ def make_resolver(serp_key: str, claude):
     return LinkResolver(serp=serp, claude=claude, max_lookups=_lookup_budget(serp_key, _int("JOBSCOUT_MAX_LOOKUPS", 0)))
 
 
-def cmd_backfill_links(args) -> int:
-    """Re-find Company job URL, Date opened and LinkedIn URL for existing rows.
-    Only these three agent-owned columns are written; everything else in your rows stays untouched."""
-    from datetime import date as _date
-
-    import gspread
-
-    from .careers import NOT_FOUND
-    from .google_io import DriveProfileStore, setup_profile
-    from .llm import Claude
-    from .models import STATE_ATS
-
-    serp_key = require_env("SERPAPI_API_KEY")
-    drive, _ = _drive()
-    for name, folder_id in _profiles(drive, args.profile):
-        started, t0 = datetime.now(timezone.utc), time.monotonic()
-        files, _ = setup_profile(drive, name, folder_id)
-        store = DriveProfileStore(drive, files)
-        claude = Claude()
-        resolver = make_resolver(serp_key, claude)
-        resolver.cache.update({st["Key"]: st.get("Value", "") for st in store.read_state() if st.get("Kind") == STATE_ATS and st.get("Value")})
-        rows = store.read_jobs()
-        ws = store._ws("Jobs")
-        header = ws.row_values(1)
-        cells, summary = [], {"company": 0, "closed": 0, "linkedin": 0, "exact_date": 0}
-        for i, r in enumerate(rows, start=2):
-            if "careers site" in r.get("Source", ""):
-                continue  # found directly on the company's site: its URL and date are already exact
-            try:
-                posted = _date.fromisoformat(r.get("Posted date", ""))
-            except ValueError:
-                posted = None
-            known = [u for u in (r.get("Job URL", ""), r.get("Company job URL", ""), r.get("LinkedIn URL", "")) if u.startswith("http")]
-            lk = resolver.resolve(r.get("Job title", ""), r.get("Company", ""), r.get("Location", ""), known, posted,
-                                  company_website=r.get("Company website", ""))
-            for col, val in (("Company job URL", lk.company_url), ("Date opened", lk.date_opened), ("LinkedIn URL", lk.linkedin_url)):
-                cells.append(gspread.Cell(i, header.index(col) + 1, val))
-            summary["company"] += lk.company_url.startswith("http")
-            summary["closed"] += lk.company_url.startswith("not listed")
-            summary["linkedin"] += lk.linkedin_url.startswith("http")
-            summary["exact_date"] += not lk.date_opened.startswith(("~", "unknown"))
-            if not IN_CI:
-                print(f"  {r.get('Company', '')[:22]:22} | {lk.date_opened:26} | {lk.company_url[:80]}\n  {'':22} | LinkedIn: {lk.linkedin_url}")
-        if cells:
-            ws.update_cells(cells, value_input_option="RAW")
-        today = datetime.now(timezone.utc).date().isoformat()
-        store.append_state([[STATE_ATS, k, today, v] for k, v in resolver.new_cache.items()])
-        note = (f"links for {len(rows)} rows: company page {summary['company']}, not on company site {summary['closed']}, "
-                f"LinkedIn {summary['linkedin']}, exact date {summary['exact_date']}")
-        store.append_run_log(run_log_row(started, "backfill-links", searches=resolver.serp.searches_used, usage=claude.usage,
-                                         seconds=time.monotonic() - t0, note=note))
-        print(f"{name if not IN_CI else 'profile'}: {note} | serpapi {resolver.serp.searches_used} | ~${claude.usage['cost_usd']:.2f}")
-    return 0
-
-
 def cmd_eval(args) -> int:
     from . import evaluation as E
     from .google_io import DriveProfileStore, setup_profile
@@ -377,6 +322,21 @@ def cmd_eval(args) -> int:
                    limit=args.limit, workers=args.workers, timeout_s=args.timeout_s,
                    only=args.cases.split(",") if args.cases else None)
     print(E.format_summary(s) + f"\n  wall clock      : {s['wall_clock_s']}s")
+    return 0
+
+
+def cmd_eval_cases(args) -> int:
+    from . import eval_cases as EC
+    from .google_io import DriveProfileStore, setup_profile
+
+    drive, _ = _drive()
+    (name, folder_id), = _profiles(drive, args.profile)
+    src = args.source or str(CANDIDATES_DIR / f"candidates_{name}.json")
+    cases = EC.build_cases(EC.load_candidates(src), n=args.n)
+    files, _ = setup_profile(drive, name, folder_id)
+    kept = EC.write_cases(DriveProfileStore(drive, files), cases)
+    print(f"{len(cases)} cases written to the Eval tab ({kept} earlier labels kept). Label them Fit / Not fit / Unsure, "
+          f"then run: python -m jobscout eval --profile {args.profile}")
     return 0
 
 
@@ -402,9 +362,6 @@ def main(argv: list[str] | None = None) -> int:
                    help="re-judge the postings from the last local run against the current brief: 0 SerpApi searches, writes nothing")
     r.set_defaults(func=cmd_run)
 
-    b = sub.add_parser("backfill-links", help="re-find company job URL, date opened and LinkedIn URL for existing rows")
-    b.add_argument("--profile", required=True, help="person's folder name, or 'all'")
-    b.set_defaults(func=cmd_backfill_links)
 
     e = sub.add_parser("eval", help="measure the judge against your own Fit / Not fit labels (Eval tab)")
     e.add_argument("--profile", required=True)
@@ -416,6 +373,12 @@ def main(argv: list[str] | None = None) -> int:
     e.add_argument("--timeout-s", type=int, default=600)
     e.add_argument("--approve-harness", action="store_true", help="approve the current eval runner (you, after reviewing it)")
     e.set_defaults(func=cmd_eval)
+
+    c = sub.add_parser("eval-cases", help="freeze postings from a run into the eval set and write the Eval tab for labelling")
+    c.add_argument("--profile", required=True)
+    c.add_argument("--from", dest="source", default="", help="postings file [logs/candidates_<name>.json from the last local run]")
+    c.add_argument("--n", type=int, default=45, help="how many cases [45]")
+    c.set_defaults(func=cmd_eval_cases)
 
     t = sub.add_parser("template", help="print the brief template to paste into a Brief doc")
     t.set_defaults(func=cmd_template)

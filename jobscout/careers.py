@@ -21,13 +21,13 @@ import re
 import time
 from dataclasses import dataclass, field
 from datetime import date, datetime, timezone
-from urllib.parse import quote, urlsplit
+from urllib.parse import urlsplit
 
 import httpx
 
 from .company_posting import date_posted_from_page, is_company_url, looks_like_posting
 from .dedup import canonical_url, normalize_company, normalize_title
-from .linkedin import company_tokens, core_title, matches_company
+from .linkedin import core_title, matches_company
 from .sources.base import parse_iso_date, parse_relative_date
 
 log = logging.getLogger(__name__)

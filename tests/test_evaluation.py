@@ -31,3 +31,16 @@ def test_oracle_and_null(tmp_path, monkeypatch):
         {"grade": {"correct": int(0 == l), "keep": 0, "label_fit": l}, "latency_s": 1}) for l in labels))  # null: keep nothing
     s = E.summarize("baseline")
     assert s["recall"]["value"] == 0.0 and s["precision"]["value"] is None
+
+
+def test_build_cases_dedups_and_numbers():
+    from jobscout.eval_cases import build_cases
+    cands = [{"title": "Data Engineer", "company": "Acme Inc.", "location": "Austin, TX"},
+             {"title": "Data Engineer (Remote)", "company": "ACME", "location": "Austin"},   # same job
+             {"title": "Data Engineer", "company": "Acme", "location": "Denver, CO"},       # other city
+             {"title": "Analyst", "company": "Beta", "location": "Remote"}]
+    cases = build_cases(cands, n=10)
+    assert len(cases) == 3
+    assert [c["case_id"] for c in cases] == ["c01", "c02", "c03"]
+    assert build_cases(cands, n=10) == cases          # fixed seed: same order every time
+    assert len(build_cases(cands, n=2)) == 2

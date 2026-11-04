@@ -49,7 +49,7 @@ def J(title, company, loc="Remote", url=None, **kw):
 def fake_llm(monkeypatch):
     calls = {"judge": 0, "facts": 0, "learn": []}
 
-    monkeypatch.setattr(L, "plan_searches", lambda c, b, n, r=None: SearchPlan(queries=[SearchQuery("fde remote")]))
+    monkeypatch.setattr(L, "plan_searches", lambda c, b, n, r=None: SearchPlan(queries=[SearchQuery("data engineer remote")]))
 
     def judge(c, brief, job, resumes=None):
         calls["judge"] += 1
@@ -70,9 +70,6 @@ def fake_llm(monkeypatch):
         calls["learn"].append(feedback)
         return ["Exclude sales-heavy roles"] if any("sales" in f["feedback"] for f in feedback) else []
     monkeypatch.setattr(L, "learn_exclusions", learn)
-    monkeypatch.setattr(L, "find_linkedin_posting", lambda c, t, co, loc: "")
-    from jobscout import company_posting
-    monkeypatch.setattr(company_posting, "resolve", lambda co, titles, urls, d, c=None: ("not found", f"~{d.isoformat()} (job board)" if d else "unknown"))
     return calls
 
 
@@ -128,7 +125,7 @@ def test_feedback_creates_learned_exclusion_once_and_rows_untouched(fake_llm):
 
 def test_dry_run_writes_nothing():
     store = FakeStore()
-    rep = pipeline.run_profile(P, store, DummyClaude(), [FakeSource([J("FDE", "Acme")])], dry_run=True)
+    rep = pipeline.run_profile(P, store, DummyClaude(), [FakeSource([J("Data Engineer", "Acme")])], dry_run=True)
     assert rep.added == 1 and len(store.jobs) == 1 and not store.log and len(store.state) == 1
 
 
@@ -160,11 +157,11 @@ def test_learned_addition_appends_header_once():
 def test_best_resume_column(fake_llm):
     store = FakeStore()
     store.resumes = [("DE resume.pdf", "Data engineer, 5 years")]
-    pipeline.run_profile(P, store, DummyClaude(), [FakeSource([J("FDE", "Acme")])])
+    pipeline.run_profile(P, store, DummyClaude(), [FakeSource([J("Data Engineer", "Acme")])])
     assert store.jobs[1][JOBS_COLUMNS.index("Best resume")] == "DE resume.pdf"
     assert len(store.jobs[1]) == len(JOBS_COLUMNS)
     store2 = FakeStore()  # no library -> 'none'
-    pipeline.run_profile(P, store2, DummyClaude(), [FakeSource([J("FDE", "Acme")])])
+    pipeline.run_profile(P, store2, DummyClaude(), [FakeSource([J("Data Engineer", "Acme")])])
     assert store2.jobs[1][JOBS_COLUMNS.index("Best resume")] == "none"
 
 
@@ -196,7 +193,7 @@ def test_run_log_line():
 
 def test_linkedin_column_filled(fake_llm):
     store = FakeStore()
-    pipeline.run_profile(P, store, DummyClaude(), [FakeSource([J("FDE", "Acme", url="https://www.linkedin.com/jobs/view/fde-at-acme-4012345678"),
+    pipeline.run_profile(P, store, DummyClaude(), [FakeSource([J("Data Engineer", "Acme", url="https://www.linkedin.com/jobs/view/data-engineer-at-acme-4012345678"),
                                                                J("DE", "Beta", url="https://beta.com/1")])])
     li = {r[JOBS_COLUMNS.index("Company")]: r[JOBS_COLUMNS.index("LinkedIn URL")] for r in store.jobs[1:]}
     assert li["Acme"] == "https://linkedin.com/jobs/view/4012345678"
@@ -229,7 +226,7 @@ def test_resolver_used_and_ats_cached(fake_llm):
                          linkedin_url="https://linkedin.com/jobs/view/4012345678")
 
     store, res = FakeStore(), FakeResolver()
-    pipeline.run_profile(P, store, DummyClaude(), [FakeSource([J("FDE", "Acme")])], resolver=res)
+    pipeline.run_profile(P, store, DummyClaude(), [FakeSource([J("Data Engineer", "Acme")])], resolver=res)
     row = dict(zip(JOBS_COLUMNS, store.jobs[1]))
     assert row["Company job URL"].endswith("/123456") and row["Date opened"].startswith("2026-10-29")
     assert row["LinkedIn URL"] == "https://linkedin.com/jobs/view/4012345678"

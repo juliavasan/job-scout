@@ -82,7 +82,6 @@ STATE_FEEDBACK = "feedback_processed"
 STATE_REJECTED = "rejected"
 STATE_ATS = "ats"  # Key = normalized company, Value = detected careers system (or "none")
 
-TAB_BRIEF = "Brief"
 TAB_JOBS = "Jobs"
 TAB_LOG = "Log"
 TAB_STATE = "_state"

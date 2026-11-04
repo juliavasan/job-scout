@@ -9,13 +9,14 @@ their own folder, brief and sheet.
 
 | Block | Technologies |
 |---|---|
-| ⏰ **Schedule** | GitHub Actions, daily at 6 AM PT; GitHub Secrets for keys and tokens |
+| ⏰ **Schedule** | GitHub Actions, every morning (6:17 AM PT, plus two backup slots); GitHub Secrets for keys and tokens |
 | 🐍 **The agent** | `jobscout`, Python 3.11 (httpx, gspread, pydantic): read brief + feedback → search → skip duplicates → judge with Claude → find company link + date → add rows |
 | 🔎 **Job sources** | SerpApi → Google Jobs (LinkedIn / Indeed / Glassdoor listings, no login); company career sites searched directly: Workday, Eightfold, Greenhouse, Lever, Ashby, SmartRecruiters |
 | 🧠 **AI: Claude** | Claude Code on your subscription (Anthropic API as fallback): Sonnet 5.5 scores each job 1–10 against your brief + resumes; Haiku 5.5 turns the brief into searches; JSON output validated with Pydantic |
 | 📁 **Google Drive** | One folder per person: Brief (Doc), Jobs (Sheet with Applied / Ignore checkboxes), Resumes, Log; a service account with access to this folder only |
 | 👩‍💻 **You** | Edit the brief, tick Applied / Ignore, from phone or laptop |
 | 🔁 **Learns from you** | Ignore (or an orange highlight) → the next run adds a dated rule to your Brief; ignored jobs never come back |
+| 📏 **Eval** | Your own Fit / Not fit labels on frozen real postings; measures the judge's agreement, precision and recall before and after every change ([Evaluation](#evaluation-is-the-judge-right)) |
 
 More detail (flows, data model, design notes): [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
 
@@ -34,7 +35,7 @@ More detail (flows, data model, design notes): [docs/ARCHITECTURE.md](docs/ARCHI
 | **Brief** (Google Doc, or a `.txt`) | Your search brief in plain language. Edit it any time, including from your phone. Learned exclusions are added at the bottom. |
 | **Resumes** (subfolder, optional) | Your resume library: the resumes you've already sent out (Google Docs, PDF, Word .docx, .txt). Claude searches for roles similar to the ones they're tailored to, judges each job against the closest one, and names it in the **Best resume** column. Up to 8 most recently modified files are used. |
 | **Log** (Google Sheet, optional) | Run history with cost per run. You create it empty; the agent adds a **Runs** tab. |
-| **Jobs** (Google Sheet) | You create it empty. The agent adds three tabs: **Jobs** (results), **Log** (one row per run) and a hidden **_state** tab (bookkeeping). |
+| **Jobs** (Google Sheet) | You create it empty. The agent adds three tabs: **Jobs** (results), **Log** (one row per run) and a hidden **_state** tab (bookkeeping), plus an **Eval** tab if you use the [eval](#evaluation-is-the-judge-right). |
 
 **Jobs tab columns:** **Applied** (checkbox) · **Ignore** (checkbox) · Date added · Fit score (1–10) · Job title · Company · Why it fits · Concerns / red flags ·
 Location · Work mode · Employment type · Seniority · Salary range · Equity mentioned · Posted date ·
@@ -229,9 +230,6 @@ What you'll see in the columns:
 skipped entirely when fewer than `JOBSCOUT_SERPAPI_RESERVE` (default 40) searches are left this month, so the daily search
 always keeps working. With two people, the free plan (250/month) runs short. SerpApi Starter ($25/month, 1,000 searches) covers it.
 
-To redo these three columns for existing rows: `python -m jobscout backfill-links --profile <name>`. This writes only to
-these three columns.
-
 
 ## Resume library
 
@@ -252,7 +250,7 @@ of a few resumes adds little cost.
 1. In the **Jobs** tab, tick **Ignore** (or set **Status** to `Not a fit`). Optionally write a reason in **My feedback**,
    e.g. `too sales-heavy`, `no agencies`. An ignored job is never added again, even if it's reposted on another site.
    Or just **highlight the row orange/red**. It counts as "not for me" even without a reason, and Claude works out the most
-   likely reason from the job itself (for example "needs security expertise" or "hybrid in San Francisco").
+   likely reason from the job itself (for example "needs security expertise" or "on-site in a city you can't commute to").
 2. On the next run, before searching, the agent reads every `Not a fit` row with feedback it hasn't seen yet. Claude turns
    that feedback into short, general rules (merging duplicates and skipping anything your brief already covers) and
    **appends** them, dated, to the end of your Brief doc:
@@ -315,7 +313,9 @@ The run log's cost column shows the list-price equivalent either way. With `clau
   Override with `JOBSCOUT_JUDGE_MODEL` / `JOBSCOUT_FAST_MODEL`.
 - Postings, search results and feedback are treated as data, never as instructions.
 - Sonnet calls turn on Anthropic's server-side refusal fallback (`fallbacks: "default"`).
-- Rough cost: typically a few cents to ~$0.30 per person per day, and less after the first week, because rejected postings and known companies are remembered.
+- A typical run makes ~35–40 Claude calls (1 to plan searches, 1 per new posting to judge, 1 per new company) and costs
+  about $0.50–1.00 at API list prices: covered by the subscription with Claude Code. Rejected postings and known companies
+  are remembered, so later runs judge fewer postings.
 
 Optional limits (env vars / secrets): `JOBSCOUT_MAX_NEW_ROWS` (25), `JOBSCOUT_MAX_AGE_DAYS` (7), `JOBSCOUT_MIN_FIT_SCORE` (6),
 `JOBSCOUT_MAX_QUERIES` (4), `JOBSCOUT_PAGES_PER_QUERY` (1).
@@ -348,6 +348,33 @@ Optional limits (env vars / secrets): `JOBSCOUT_MAX_NEW_ROWS` (25), `JOBSCOUT_MA
   (`JOBSCOUT_MAX_LOOKUPS=0`). Company links come from career-site searches, which are free.
 - Budget: about 4 searches per person per run, so two people use about 240 of the free plan's 250 a month.
 
+## Evaluation (is the judge right?)
+
+The agent rewrites its own brief from feedback, so a too-broad rule could quietly hide good jobs. The eval measures
+the one decision that matters, keep or skip, against **your own labels**.
+
+1. **Freeze a set of real postings.** `python -m jobscout eval-cases --profile <name>` takes the postings from the last
+   local run (`logs/candidates_<name>.json`: everything the search found, *before* the judge, so rejected jobs are
+   included) and writes 45 of them, shuffled, to an **Eval** tab in the person's Jobs sheet. The frozen copy is saved to
+   `.claude/hillclimb/judge/cases.jsonl` (gitignored; it's personal data).
+2. **Label them blind.** In the Eval tab set **Your label** to `Fit` (you'd want it in your daily list), `Not fit`
+   (you'd tick Ignore) or `Unsure` (left out of the scores). The agent's verdict isn't shown.
+3. **Run it.** `python -m jobscout eval --profile <name> --reps 3`. The first time, and after any change to
+   `jobscout/evaluation.py`, add `--approve-harness`: the runner is hash-locked, so the code that grades can't change
+   without you approving it.
+
+The report: agreement, precision (kept jobs you want), recall (good jobs it keeps) and specificity, each with a 95%
+confidence interval, the "always say not fit" baseline, and a confusion matrix. Per-case results, the judge's reasons
+and the exact prompts go to `.claude/hillclimb/judge/<variant>/`. A case counts as kept on the same rule as the daily run
+(include **and** score ≥ `JOBSCOUT_MIN_FIT_SCORE`). It runs offline: one judge call per case per rep, 0 SerpApi
+searches, nothing written to the Jobs tab.
+
+**How to use it:** run a baseline, then after every change to the brief, the judge prompt, the threshold or the model,
+run again with `--variant <name>` and compare. Keep the change only if recall doesn't drop. Read the judge's reason on
+each disagreement: often the brief is vague (fix the brief), and sometimes your label was wrong (fix the label).
+Refresh the set every month or so, and keep rejected postings in it: your sheet only shows kept jobs, so your daily
+ticks can never reveal a good job the agent skipped.
+
 ## Security
 
 | Risk | What's in place |
@@ -369,4 +396,7 @@ To update Claude Code in CI, change `CLAUDE_CODE_VERSION` and `CLAUDE_CODE_SHA25
 ```bash
 pytest -q                                              # unit + end-to-end pipeline tests (fake Drive, fake Claude)
 python -m jobscout -v run --profile alex --dry-run
+python -m jobscout run --profile alex --replay          # re-judge the last run's postings, 0 searches
+python -m jobscout eval-cases --profile alex            # build the labelling set (Eval tab)
+python -m jobscout eval --profile alex --reps 3         # score the judge against your labels
 ```
