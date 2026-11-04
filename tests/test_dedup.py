@@ -143,3 +143,11 @@ def test_looks_like_posting():
     assert lp("https://jobs.initech.com/careers/job/893396034942", t)
     assert lp("https://careers.umbrellahealth.com/job/18530540/senior-data-engineer-remote-remote/", t)
     assert lp("https://acme.com/careers/senior-data-engineer", t)
+
+
+def test_unclosed_parenthetical_title_matches_full_title():
+    from jobscout.dedup import company_title_key
+    a = company_title_key("Acme Labs", "Senior Project Manager (Platform & AI Delivery)")
+    b = company_title_key("Acme Labs", "Senior Project Manager (Platform & AI Delivery")
+    c = company_title_key("Acme Labs", "Senior Project Manager (Platform & AI Delivery) (Fully Remote)")
+    assert a == b == c

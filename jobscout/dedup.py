@@ -60,6 +60,7 @@ def normalize_company(company: str) -> str:
 def normalize_title(title: str) -> str:
     t = (title or "").lower()
     t = re.sub(r"\([^)]*\)", " ", t)  # "(Remote)", "(m/f/d)"
+    t = re.sub(r"\([^)]*$", " ", t)     # unclosed "(Enterprise Modernization & AI Delivery" (truncated by some sites)
     for pat, rep in _TITLE_SYNONYMS:
         t = re.sub(pat, rep, t)
     return _clean(t)
