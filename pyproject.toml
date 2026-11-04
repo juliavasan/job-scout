@@ -20,7 +20,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=8"]
+dev = ["pytest>=9.2.0"]
 
 [project.scripts]
 jobscout = "jobscout.cli:main"
