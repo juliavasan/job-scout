@@ -14,7 +14,7 @@ from . import llm as L
 from .config import ConfigError, Profile
 from .dedup import canonical_url, company_title_key, job_key, normalize_company
 from .models import (
-    LEARNED_HEADER, NOT_A_FIT, STATE_ATS, STATE_FEEDBACK, STATE_REJECTED, RawJob,
+    JOBS_COLUMNS, LEARNED_HEADER, NOT_A_FIT, STATE_ATS, STATE_FEEDBACK, STATE_REJECTED, RawJob,
 )
 from .sources import SearchPlan, Source, parse_watchlist
 
@@ -295,15 +295,21 @@ def run_profile(
     # 7) Build + append rows
     for (job, j), (li_url, co_url, opened) in zip(accepted, link_info):
         f = known.get(normalize_company(job.company), UNKNOWN_FACTS)
-        rep.rows.append([
-            "", "", day, str(j.fit_score), j.job_title or job.title, job.company, j.why_it_fits, j.concerns,
-            j.location or job.location, j.work_mode, j.employment_type, j.seniority, j.salary_range,
-            j.equity_mentioned, job.posted_date.isoformat() if job.posted_date else "unknown",
-            f.company_type_industry, f.size_employees, f.funding_stage_or_public, f.hq, f.one_line_description,
-            job.url, job.company_website or f.website, job.source, "New", "",
-            j.best_resume if j.best_resume in resume_names else ("none" if not resumes else "unclear"),
-            li_url, co_url, opened,
-        ])
+        row = {
+            "Applied": "", "Ignore": "", "Date added": day, "Fit score (1–10)": str(j.fit_score),
+            "Job title": j.job_title or job.title, "Company": job.company,
+            "Why it fits": j.why_it_fits, "Concerns / red flags": j.concerns,
+            "Location": j.location or job.location, "Work mode": j.work_mode, "Employment type": j.employment_type,
+            "Seniority": j.seniority, "Salary range": j.salary_range, "Equity mentioned": j.equity_mentioned,
+            "Posted date": job.posted_date.isoformat() if job.posted_date else "unknown",
+            "Company type / industry": f.company_type_industry, "Company size (employees)": f.size_employees,
+            "Funding stage / public": f.funding_stage_or_public, "HQ": f.hq, "Company description": f.one_line_description,
+            "Job URL": job.url, "Company website": job.company_website or f.website, "Source": job.source,
+            "Status": "New", "My feedback": "",
+            "Best resume": j.best_resume if j.best_resume in resume_names else ("none" if not resumes else "unclear"),
+            "LinkedIn URL": li_url, "Company job URL": co_url, "Date opened": opened,
+        }
+        rep.rows.append([row[c] for c in JOBS_COLUMNS])  # by name, so the column order lives only in models.py
     rep.added = len(rep.rows)
 
     if not dry_run:

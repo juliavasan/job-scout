@@ -9,6 +9,7 @@ from datetime import date
 JOBS_COLUMNS = [
     "Applied",  # checkbox, yours to tick; the agent never sets it
     "Ignore",   # checkbox: "not for me" -> never re-added, and the next run learns a rule from it
+    "Job URL",  # next to the checkboxes: open the posting, then tick
     "Date added",
     "Fit score (1–10)",
     "Job title",
@@ -27,7 +28,6 @@ JOBS_COLUMNS = [
     "Funding stage / public",
     "HQ",
     "Company description",
-    "Job URL",
     "Company website",
     "Source",
     "Status",

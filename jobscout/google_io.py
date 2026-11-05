@@ -335,8 +335,11 @@ def ensure_sheet_layout(gc: gspread.Client, sheet_id: str) -> list[str]:
             "range": {"sheetId": jobs.id, "startRowIndex": 1, "startColumnIndex": status_col, "endColumnIndex": status_col + 1},
             "rule": {"condition": {"type": "ONE_OF_LIST", "values": [{"userEnteredValue": v} for v in STATUS_VALUES]},
                      "strict": True, "showCustomUi": True}}},
-        {"repeatCell": {"range": {"sheetId": jobs.id, "startRowIndex": 1, "startColumnIndex": url_col, "endColumnIndex": url_col + 2},
-                        "cell": {"userEnteredFormat": {"wrapStrategy": "CLIP"}}, "fields": "userEnteredFormat.wrapStrategy"}},
+        *[{"repeatCell": {"range": {"sheetId": jobs.id, "startRowIndex": 1, "startColumnIndex": c, "endColumnIndex": c + 1},
+                          "cell": {"userEnteredFormat": {"wrapStrategy": "CLIP"}}, "fields": "userEnteredFormat.wrapStrategy"}}
+          for c in (url_col, hdr.index("Company website")) if c >= 0],
+        {"updateDimensionProperties": {"range": {"sheetId": jobs.id, "dimension": "COLUMNS", "startIndex": url_col, "endIndex": url_col + 1},
+                                       "properties": {"pixelSize": 160}, "fields": "pixelSize"}},
         {"updateSheetProperties": {"properties": {"sheetId": state.id, "hidden": True}, "fields": "hidden"}},
     ]
     sh.batch_update({"requests": requests})
