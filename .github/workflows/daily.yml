@@ -6,7 +6,9 @@ on:
     # 14:17 UTC = 6:17 AM PST (Nov–Mar) = 7:17 AM PDT (Mar–Nov).
     # For ~6 AM during PDT instead, use "17 13 * * *" (= 5:17 AM PST in winter).
     # GitHub scheduled runs are best-effort: they can start hours late or be skipped, most often on the hour.
-    # So there are two backup slots; each one exits right away if a run already succeeded today (UTC).
+    # So the main trigger is external: cron-job.org starts this workflow at 6:00 AM Pacific through the API
+    # (workflow_dispatch with skip_if_done=true). These slots are backups; each one exits right away if a run
+    # already succeeded today (UTC).
     - cron: "17 14 * * *"
     - cron: "47 15 * * *"
     - cron: "17 18 * * *"
@@ -18,6 +20,10 @@ on:
         required: true
       dry_run:
         description: "Dry run (write nothing)"
+        type: boolean
+        default: false
+      skip_if_done:
+        description: "Skip if a run already succeeded today (the external daily trigger sets this)"
         type: boolean
         default: false
 
@@ -34,12 +40,12 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - name: Skip if today's run already succeeded (scheduled slots only)
+      - name: Skip if today's run already succeeded (scheduled slots and the external trigger)
         id: guard
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          if [ "${{ github.event_name }}" != "schedule" ]; then echo "done=no" >> "$GITHUB_OUTPUT"; exit 0; fi
+          if [ "${{ github.event_name }}" != "schedule" ] && [ "${{ inputs.skip_if_done }}" != "true" ]; then echo "done=no" >> "$GITHUB_OUTPUT"; exit 0; fi
           today=$(date -u +%F)
           n=$(gh run list -R "$GITHUB_REPOSITORY" -w daily.yml --status success --limit 20 --json createdAt \
                 --jq "[.[] | select(.createdAt | startswith(\"$today\"))] | length")

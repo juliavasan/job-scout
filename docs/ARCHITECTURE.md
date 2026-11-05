@@ -12,7 +12,7 @@ Jobs sheet that collects results and feedback. GitHub Actions is the scheduler, 
 
 ```mermaid
 flowchart LR
-    subgraph GH["GitHub Actions — daily cron 14:17 UTC + 2 backup slots"]
+    subgraph GH["GitHub Actions — started 6:00 AM PT by cron-job.org; 3 backup cron slots"]
         CLI["python -m jobscout run --profile all"]
     end
 
@@ -260,8 +260,8 @@ flowchart LR
 | One judge call fails | Skipped; the posting is not recorded as rejected, so it gets another chance tomorrow |
 | Cost runaway | ≤4 searches, ≤80 judged, ≤25 added per profile per run; rejected postings and known companies remembered |
 | Duplicate runs | `concurrency: jobscout` in the workflow, a run lock in `_state` (local + cloud), and dedup makes reruns safe anyway |
-| GitHub skips a scheduled run | Two backup cron slots; each exits immediately if a run already succeeded that day |
-| DST | Cron is UTC: 6:17 AM PST / 7:17 AM PDT (see README) |
+| GitHub skips a scheduled run | The main trigger is external (cron-job.org calls the workflow API at 6:00 AM PT); GitHub's own cron slots are backups, and every trigger exits immediately if a run already succeeded that day |
+| DST | The external trigger runs on Pacific time; GitHub's backup cron is UTC (6:17 AM PST / 7:17 AM PDT) |
 
 ## Security and privacy
 

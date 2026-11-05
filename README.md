@@ -9,7 +9,7 @@ their own folder, brief and sheet.
 
 | Block | Technologies |
 |---|---|
-| ⏰ **Schedule** | GitHub Actions, every morning (6:17 AM PT, plus two backup slots); GitHub Secrets for keys and tokens |
+| ⏰ **Schedule** | GitHub Actions, started at 6:00 AM PT by an external cron (plus backup slots); GitHub Secrets for keys and tokens |
 | 🐍 **The agent** | `jobscout`, Python 3.11 (httpx, gspread, pydantic): read brief + feedback → search → skip duplicates → judge with Claude → find company link + date → add rows |
 | 🔎 **Job sources** | SerpApi → Google Jobs (LinkedIn / Indeed / Glassdoor listings, no login); company career sites searched directly: Workday, Eightfold, Greenhouse, Lever, Ashby, SmartRecruiters |
 | 🧠 **AI: Claude** | Claude Code on your subscription (Anthropic API as fallback): Sonnet 5.5 scores each job 1–10 against your brief + resumes; Haiku 5.5 turns the brief into searches; JSON output validated with Pydantic |
@@ -160,15 +160,24 @@ gh secret set JOBSCOUT_ROOT_FOLDER_ID
 doesn't block the others. You can start a run by hand under **Actions → Daily job scout → Run workflow**, or with
 `gh workflow run "Daily job scout"`.
 
-**About the time.** GitHub's cron runs on UTC and **does not follow daylight saving time**. The main slot
-`17 14 * * *` is **6:17 AM PST** in winter and **7:17 AM PDT** in summer. To get ~6 AM in summer instead, use
-`17 13 * * *` (which means 5:17 AM in winter).
+**Main trigger: an external cron.** GitHub's own scheduled runs are best-effort: they can start hours late or
+not at all (this repo saw both, several days in a row). So the daily run is started from outside GitHub: a free
+[cron-job.org](https://cron-job.org) job calls GitHub's API at 6:00 AM Pacific (it follows daylight saving time):
 
-**Backup slots.** GitHub's scheduled runs are best-effort: they can start hours late or be skipped entirely,
-most often at the top of the hour. So the workflow has two backup slots (7:47 AM and 10:17 AM PST). Each one
-first checks whether a run already succeeded today (UTC) and exits in seconds if so, so a normal day still has
-exactly one real run. GitHub also pauses schedules in repos with no activity for 60 days; a push or a manual run
-re-enables them.
+```
+POST https://api.github.com/repos/<owner>/<repo>/actions/workflows/daily.yml/dispatches
+Authorization: Bearer <fine-grained token: this repo only, Actions read & write>
+Accept: application/vnd.github+json
+{"ref": "main", "inputs": {"profile": "all", "skip_if_done": "true"}}
+```
+
+GitHub answers `204 No Content` when the run has started. The token can start and view workflow runs in this
+one repo; it can't read or change code or secrets.
+
+**Backup slots.** The workflow's own cron slots (`17 14`, `47 15`, `17 18` UTC = 6:17, 7:47, 10:17 AM PST) stay as
+backups. Each one, like the external trigger (`skip_if_done`), first checks whether a run already succeeded today
+(UTC) and exits in seconds if so, so a normal day has exactly one real run. GitHub cron is UTC and ignores daylight
+saving time. GitHub also pauses schedules in repos with no activity for 60 days; a push or a manual run re-enables them.
 
 **Public logs.** This repo is public, so its Actions logs are too. In CI the agent logs only counts and error
 types, and refers to people as `profile-1`, `profile-2`. It never prints briefs, search queries, job details or folder names.
