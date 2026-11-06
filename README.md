@@ -37,10 +37,13 @@ More detail (flows, data model, design notes): [docs/ARCHITECTURE.md](docs/ARCHI
 | **Log** (Google Sheet, optional) | Run history with cost per run. You create it empty; the agent adds a **Runs** tab. |
 | **Jobs** (Google Sheet) | You create it empty. The agent adds three tabs: **Jobs** (results), **Log** (one row per run) and a hidden **_state** tab (bookkeeping), plus an **Eval** tab if you use the [eval](#evaluation-is-the-judge-right). |
 
-**Jobs tab columns:** **Applied** (checkbox) · **Ignore** (checkbox) · Date added · Fit score (1–10) · Job title · Company · Why it fits · Concerns / red flags ·
-Location · Work mode · Employment type · Seniority · Salary range · Equity mentioned · Posted date ·
-Company type / industry · Company size · Funding stage / public · HQ · Company description · Job URL ·
-Company website · Source · **Status** (dropdown) · **My feedback** · **Best resume** · **LinkedIn URL** · **Company job URL** · **Date opened**
+**Jobs tab columns:** **Applied** (checkbox) · **Ignore** (checkbox) · **Job URL** · Date added · Fit score (1–10) · Job title · Company ·
+**Startup?** · Why it fits · Concerns / red flags · Location · Work mode · Employment type · Seniority · Salary range · Equity mentioned ·
+Posted date · Company type / industry · Company size · Funding stage / public · HQ · Company description · Company website · Source · **Status** (dropdown) · **My feedback** · **Best resume** · **LinkedIn URL** · **Company job URL** · **Date opened**
+
+**Startup?** is filled in from the company facts: **Yes** for a private, venture-backed company (seed to late stage)
+with up to 5,000 employees, or a small private one; **No** for public, acquired or bigger companies; **unknown**
+when the funding stage isn't known.
 
 Company facts come from a web search by Claude. Anything it can't confirm is written as `unknown`, never guessed.
 

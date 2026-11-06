@@ -14,7 +14,7 @@ from . import llm as L
 from .config import ConfigError, Profile
 from .dedup import canonical_url, company_title_key, job_key, normalize_company
 from .models import (
-    JOBS_COLUMNS, LEARNED_HEADER, NOT_A_FIT, STATE_ATS, STATE_FEEDBACK, STATE_REJECTED, RawJob,
+    JOBS_COLUMNS, LEARNED_HEADER, NOT_A_FIT, STATE_ATS, STATE_FEEDBACK, STATE_REJECTED, RawJob, startup_flag,
 )
 from .sources import SearchPlan, Source, parse_watchlist
 
@@ -298,6 +298,7 @@ def run_profile(
         row = {
             "Applied": "", "Ignore": "", "Date added": day, "Fit score (1–10)": str(j.fit_score),
             "Job title": j.job_title or job.title, "Company": job.company,
+            "Startup?": startup_flag(f.funding_stage_or_public, f.size_employees),
             "Why it fits": j.why_it_fits, "Concerns / red flags": j.concerns,
             "Location": j.location or job.location, "Work mode": j.work_mode, "Employment type": j.employment_type,
             "Seniority": j.seniority, "Salary range": j.salary_range, "Equity mentioned": j.equity_mentioned,

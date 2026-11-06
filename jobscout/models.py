@@ -1,6 +1,8 @@
 """Shared data types and the sheet layout."""
 from __future__ import annotations
 
+import re
+
 from dataclasses import dataclass, field
 from datetime import date
 
@@ -14,6 +16,7 @@ JOBS_COLUMNS = [
     "Fit score (1–10)",
     "Job title",
     "Company",
+    "Startup?",  # Yes / No / unknown, from the company's funding stage and size
     "Why it fits",
     "Concerns / red flags",
     "Location",
@@ -41,6 +44,26 @@ JOBS_COLUMNS = [
 STATUS_VALUES = ["New", "Interested", "Applied", "Not a fit"]
 NOT_A_FIT = "Not a fit"
 CHECKBOX_COLUMNS = ["Applied", "Ignore"]
+
+STARTUP_MAX_EMPLOYEES = 5000  # a venture-backed company bigger than this is a scale-up, not a startup
+
+
+def _employees(size: str) -> int | None:
+    m = re.search(r"\d[\d,]*", size or "")
+    return int(m.group().replace(",", "")) if m and not (size or "").lower().startswith("unknown") else None
+
+
+def startup_flag(funding: str, size: str) -> str:
+    """'Yes' for a private, venture-backed (or small private) company; 'No' for public, acquired or big ones."""
+    f = (funding or "").lower()
+    n = _employees(size)
+    if re.search(r"\bpublic\b|nasdaq|nyse|subsidiary|acquired|division of|part of", f):
+        return "No"
+    if re.search(r"pre-seed|\bseed\b|series [a-z]\b|venture|vc-backed|bootstrapped", f):
+        return "No" if n and n > STARTUP_MAX_EMPLOYEES else "Yes"
+    if "private" in f and n is not None:
+        return "Yes" if n <= 1000 else "No"
+    return "unknown"
 
 LOG_COLUMNS = [
     "Run at (UTC)",

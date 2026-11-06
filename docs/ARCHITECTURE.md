@@ -193,9 +193,10 @@ company preferences, nice-to-haves, "Don't show me", optional "Companies to watc
 then the auto-maintained "Learned exclusions".
 
 **Jobs tab** (append-only, read by header name so you can add your own columns on the right):
-**Applied** ☐ · **Ignore** ☐ · Date added · Fit score · Job title · Company · Why it fits · Concerns · Location · Work mode ·
-Employment type · Seniority · Salary range · Equity mentioned · Posted date · Company type/industry ·
-Company size · Funding stage · HQ · Company description · Job URL · Company website · Source ·
+**Applied** ☐ · **Ignore** ☐ · Job URL · Date added · Fit score · Job title · Company · Startup? (Yes / No / unknown, a rule over
+the company facts) · Why it fits · Concerns · Location · Work mode · Employment type · Seniority · Salary range ·
+Equity mentioned · Posted date · Company type/industry · Company size · Funding stage · HQ · Company description ·
+Company website · Source ·
 **Status** (New / Interested / Applied / Not a fit) · **My feedback** · **Best resume** · LinkedIn URL ·
 Company job URL · Date opened
 (new columns are only ever added at the end; `setup` adds them to existing sheets automatically)
