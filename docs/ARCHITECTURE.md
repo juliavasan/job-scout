@@ -39,7 +39,7 @@ flowchart LR
 
     subgraph SOURCES["Job sources (pluggable)"]
         SERP["SerpApi Google Jobs<br/>LinkedIn, Indeed, Glassdoor,<br/>company career pages"]
-        ATS["Company career sites<br/>Workday · Eightfold · Greenhouse<br/>Lever · Ashby · SmartRecruiters"]
+        ATS["Company career sites<br/>Workday · Eightfold · Greenhouse<br/>Lever · Ashby · SmartRecruiters · amazon.jobs"]
     end
 
     subgraph CLAUDE["Claude (via Claude Code on a subscription; API as fallback)"]
@@ -163,7 +163,7 @@ jobscout/
 ├── dedup.py            canonical_url(), job_key(), company_title_key()
 ├── google_io.py        Drive (list, read/append brief, resume text extraction), profile discovery,
 │                       sheet layout, run lock, DriveProfileStore
-├── careers.py          ATS detection (Workday, Eightfold, Greenhouse, Lever, Ashby, SmartRecruiters), ATS search,
+├── careers.py          ATS detection (Workday, Eightfold, Greenhouse, Lever, Ashby, SmartRecruiters; plus amazon.jobs), ATS search,
 │                       LinkResolver: company job URL + date opened + exact LinkedIn link, link verification
 ├── company_posting.py  is a URL the employer's own posting? schema.org datePosted from the page
 ├── linkedin.py         employer matching for URLs; exact LinkedIn /jobs/view/ links only

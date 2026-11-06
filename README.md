@@ -208,7 +208,8 @@ recruiter friend. The template's sections:
   not dropped. A posted range whose top is below your minimum is excluded.
 - **Company preferences.** Stage, size, industry, and anything that should raise the score.
 - **Don't show me.** Hard exclusions, one per line: "staffing agencies", "on-site 5 days in SF", "crypto".
-- **Companies to watch (optional).** One company per line: a name like `Acme Corp`, a careers URL, or `greenhouse:slug`.
+- **Companies to watch (optional).** One company per line: a name like `Acme Corp`, a careers URL, `greenhouse:slug`, or
+  `amazon: Sunnyvale, Cupertino` (amazon.jobs, limited to those cities).
   Their own career sites are searched directly on every run (see Sources). Lines starting with `#` are ignored.
 
 Tips:
@@ -316,7 +317,7 @@ A posting is skipped if any of these is true (rows in **"Jobs archive …"** tab
 | Source | What it does |
 |---|---|
 | `SerpApiGoogleJobs` | Google for Jobs: LinkedIn, Indeed, Glassdoor, Built In and company career pages. About 4 searches per run, postings from the last 7 days. |
-| `CompanySites` | Searches the **companies' own career sites** for your target roles. Companies come from the brief's "Companies to watch" section, one per line: a company name (`Acme Corp`), a careers URL (`https://acme.wd5.myworkdayjobs.com/External`), or `greenhouse:slug` / `lever:slug` / `ashby:slug`. Supports Workday, Eightfold, Greenhouse, Lever, Ashby and SmartRecruiters. Jobs found this way come with the exact company URL, date opened and full description. Up to `JOBSCOUT_PER_COMPANY` (5, newest first) new postings per company per run, opened within `JOBSCOUT_WATCH_MAX_AGE_DAYS` (90). Jobs already in the sheet or already rejected are skipped first, so older good roles get their turn on later runs. |
+| `CompanySites` | Searches the **companies' own career sites** for your target roles. Companies come from the brief's "Companies to watch" section, one per line: a company name (`Acme Corp`), a careers URL (`https://acme.wd5.myworkdayjobs.com/External`), or `greenhouse:slug` / `lever:slug` / `ashby:slug`, or `amazon: City, City` for amazon.jobs. Supports Workday, Eightfold, Greenhouse, Lever, Ashby, SmartRecruiters and amazon.jobs' public search (Google's and Meta's career sites don't allow automated search, so those come from Google Jobs). Jobs found this way come with the exact company URL, date opened and full description. Up to `JOBSCOUT_PER_COMPANY` (5, newest first) new postings per company per run, opened within `JOBSCOUT_WATCH_MAX_AGE_DAYS` (90). Jobs already in the sheet or already rejected are skipped first, so older good roles get their turn on later runs. |
 
 To add a source, subclass `jobscout.sources.base.Source`, implement `fetch(plan, max_age_days) -> list[RawJob]`, and add it in `cli.py`.
 

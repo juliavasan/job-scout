@@ -70,8 +70,8 @@ def _post(url: str, payload: dict) -> httpx.Response | None:
 
 @dataclass(frozen=True)
 class Ats:
-    kind: str           # workday | greenhouse | lever | ashby | smartrecruiters | eightfold
-    a: str              # main id (workday host / slug / eightfold host)
+    kind: str           # workday | greenhouse | lever | ashby | smartrecruiters | eightfold | amazon
+    a: str              # main id (workday host / slug / eightfold host / amazon: cities joined by '|')
     b: str = ""         # secondary (workday site / eightfold domain)
 
     def dumps(self) -> str:
@@ -190,6 +190,25 @@ def fetch_details(ats: Ats, p: Posting) -> Posting:
     return p
 
 
+def _amazon_date(s: str | None) -> date | None:
+    try:
+        return datetime.strptime(re.sub(r"\s+", " ", s or "").strip(), "%B %d, %Y").date()
+    except ValueError:
+        return None
+
+
+def _amazon_locations(j: dict) -> str:
+    """All of a posting's offices ('Seattle, WA; Sunnyvale, CA'), so the judge sees the Bay Area option."""
+    out = []
+    for raw in j.get("locations") or []:
+        try:
+            loc = json.loads(raw) if isinstance(raw, str) else raw
+            out.append(f"{loc.get('city', '')}, {loc.get('normalizedStateName') or loc.get('normalizedCountryName', '')}".strip(", "))
+        except (ValueError, AttributeError):
+            continue
+    return "; ".join(dict.fromkeys(x for x in out if x)) or j.get("normalized_location", "")
+
+
 def search_ats(ats: Ats, title: str) -> list[Posting] | None:
     """Postings on the ATS matching the title query. None = the ATS couldn't be queried."""
     q = core_title(title)
@@ -241,6 +260,19 @@ def search_ats(ats: Ats, title: str) -> list[Posting] | None:
                 return None
             return [Posting(j.get("title", ""), j.get("jobUrl", ""), parse_iso_date(j.get("publishedAt")), j.get("location", ""),
                             description=j.get("descriptionPlain") or "") for j in r.json().get("jobs", [])]
+        if ats.kind == "amazon":
+            # amazon.jobs' public search (its robots.txt allows it). Filtered to the watched cities, newest first.
+            params = {"base_query": title or q, "result_limit": 50, "sort": "recent"}
+            if ats.a:
+                params["normalized_city_name[]"] = [c for c in ats.a.split("|") if c]
+            r = _get("https://www.amazon.jobs/en/search.json", params=params)
+            if r is None or r.status_code != 200:
+                return None
+            return [Posting(j.get("title", ""), "https://www.amazon.jobs" + j.get("job_path", ""), _amazon_date(j.get("posted_date")),
+                            _amazon_locations(j),
+                            description="\n\n".join(_html_to_text(j.get(k) or "") for k in
+                                                     ("description", "basic_qualifications", "preferred_qualifications")))
+                    for j in r.json().get("jobs", []) if j.get("job_path")]
         if ats.kind == "smartrecruiters":
             r = _get(f"https://api.smartrecruiters.com/v1/companies/{ats.a}/postings", params={"q": title or q, "limit": 50})
             if r is None or r.status_code != 200:

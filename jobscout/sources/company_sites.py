@@ -5,8 +5,9 @@ Companies come from the "Companies to watch" section of the brief, one per line,
     Acme Corp                                       <- a name: the careers system is found automatically (and cached)
     https://acme.wd5.myworkdayjobs.com/External     <- a careers/ATS URL
     greenhouse:acme   lever:acme   ashby:acme       <- explicit public boards
+    amazon: Sunnyvale, Cupertino, Palo Alto         <- amazon.jobs, limited to these cities (plain "Amazon" = anywhere)
 
-Supported careers systems: Workday, Eightfold, Greenhouse, Lever, Ashby, SmartRecruiters.
+Supported careers systems: Workday, Eightfold, Greenhouse, Lever, Ashby, SmartRecruiters, and amazon.jobs.
 Each company's site is searched for the brief's role keywords; matches come with the exact company URL,
 the date the job was opened, and the full description. No job boards, no LinkedIn.
 """
@@ -54,6 +55,8 @@ def parse_watchlist(brief: str) -> list[str]:
 
 
 def _display_name(entry: str, ats) -> str:
+    if ats.kind == "amazon":
+        return "Amazon"
     if not re.match(r"^(https?://|\w+:)", entry):
         return entry
     base = ats.a.split(".")[0] if ats.kind in ("workday",) else (ats.b.split(".")[0] if ats.kind == "eightfold" and ats.b else ats.a)
@@ -70,6 +73,9 @@ class CompanySites(Source):
     def _ats(self, entry: str):
         from ..careers import Ats, detect_ats
 
+        if entry.lower().startswith("amazon"):  # "Amazon" or "amazon: Sunnyvale, Cupertino, Palo Alto"
+            cities = entry.split(":", 1)[1] if ":" in entry else ""
+            return Ats("amazon", "|".join(c.strip() for c in cities.split(",") if c.strip()))
         m = _EXPLICIT.match(entry)
         if m:
             kind, a, b = m.group(1).lower(), m.group(2), m.group(3) or ""
@@ -96,7 +102,7 @@ class CompanySites(Source):
             company = _display_name(entry, ats)
             postings, seen = [], set()
             # list-style boards return everything in one call; search-style ATSs get one query per keyword
-            queries = keywords[:4] if ats.kind in ("workday", "eightfold", "smartrecruiters") else [""]
+            queries = keywords[:4] if ats.kind in ("workday", "eightfold", "smartrecruiters", "amazon") else [""]
             for q in queries:
                 res = search_ats(ats, q or "")
                 if res is None:
