@@ -155,6 +155,7 @@ class Posting:
     location: str = ""
     description: str = ""
     detail: str = ""  # ATS-specific id/path to fetch the full description
+    salary: str = ""  # pay range as the board publishes it, when it does
 
 
 def _html_to_text(s: str) -> str:
@@ -188,6 +189,20 @@ def fetch_details(ats: Ats, p: Posting) -> Posting:
     except (ValueError, KeyError, TypeError):
         pass
     return p
+
+
+def _with_mode(locations: list[str], mode: str | None) -> str:
+    """Every office a posting lists, plus its work mode: 'Dublin, CA; Menlo Park, CA (Hybrid)'.
+    Boards put extra offices in a separate field; showing only the first one makes a Bay Area job look like it isn't."""
+    locs = "; ".join(dict.fromkeys(x.strip() for x in locations if x and x.strip()))
+    m = {"onsite": "On-site", "hybrid": "Hybrid", "remote": "Remote"}.get(re.sub(r"[^a-z]", "", (mode or "").lower()), "")
+    return f"{locs} ({m})" if locs and m else (locs or m)
+
+
+def _lever_salary(sr: dict | None) -> str:
+    if not sr or not sr.get("min"):
+        return ""
+    return f"{sr.get('currency', '')} {sr['min']:,} - {sr.get('max', sr['min']):,} {sr.get('interval', '')}".strip()
 
 
 def _amazon_date(s: str | None) -> date | None:
@@ -252,14 +267,20 @@ def search_ats(ats: Ats, title: str) -> list[Posting] | None:
             if r is None or r.status_code != 200:
                 return None
             return [Posting(j.get("text", ""), j.get("hostedUrl", ""), parse_iso_date(j.get("createdAt")),
-                            (j.get("categories") or {}).get("location", ""),
-                            description=(j.get("descriptionPlain") or "") + "\n\n" + (j.get("additionalPlain") or "")) for j in r.json()]
+                            _with_mode((j.get("categories") or {}).get("allLocations") or [(j.get("categories") or {}).get("location", "")],
+                                       j.get("workplaceType")),
+                            description=(j.get("descriptionPlain") or "") + "\n\n" + (j.get("additionalPlain") or ""),
+                            salary=_lever_salary(j.get("salaryRange"))) for j in r.json()]
         if ats.kind == "ashby":
-            r = _get(f"https://api.ashbyhq.com/posting-api/job-board/{ats.a}")
+            r = _get(f"https://api.ashbyhq.com/posting-api/job-board/{ats.a}", params={"includeCompensation": "true"})
             if r is None or r.status_code != 200:
                 return None
-            return [Posting(j.get("title", ""), j.get("jobUrl", ""), parse_iso_date(j.get("publishedAt")), j.get("location", ""),
-                            description=j.get("descriptionPlain") or "") for j in r.json().get("jobs", [])]
+            return [Posting(j.get("title", ""), j.get("jobUrl", ""), parse_iso_date(j.get("publishedAt")),
+                            _with_mode([j.get("location", "")] + [x.get("location", "") for x in j.get("secondaryLocations") or []],
+                                       j.get("workplaceType")),
+                            description=j.get("descriptionPlain") or "",
+                            salary=((j.get("compensation") or {}).get("compensationTierSummary") or "").strip())
+                    for j in r.json().get("jobs", [])]
         if ats.kind == "amazon":
             # amazon.jobs' public search (its robots.txt allows it). Filtered to the watched cities, newest first.
             params = {"base_query": title or q, "result_limit": 50, "sort": "recent"}

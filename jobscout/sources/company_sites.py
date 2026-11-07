@@ -124,6 +124,6 @@ class CompanySites(Source):
                 p = fetch_details(ats, p)
                 out.append(RawJob(title=p.title, company=company, location=p.location, url=p.url,
                                   source=f"{company} careers site ({ats.kind})", description=p.description,
-                                  posted_date=p.opened))
+                                  posted_date=p.opened, salary_hint=p.salary))
             log.info("company site: %d matching postings (%s)", len(postings[:PER_COMPANY]), ats.kind)
         return out
